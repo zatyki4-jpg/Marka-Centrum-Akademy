@@ -416,7 +416,7 @@ function showExamResult(result) {
         <div class="cert-course">${courseName} — DakPro Academy</div>
         <div class="cert-date">Behaald op ${today}</div>
       </div>
-      <button class="btn btn-green btn-full" style="margin-bottom:10px;" onclick="toast('Certificaat wordt gedownload!')">Certificaat downloaden</button>` : ""}
+      <button class="btn btn-green btn-full" style="margin-bottom:10px;" onclick="downloadCertificaat('${name}', '${courseName}', '${today}')"">Certificaat downloaden</button>` : ""}
     <button class="btn btn-secondary btn-full" onclick="goHome()">Terug naar cursussen</button>
   </div>`;
 }
