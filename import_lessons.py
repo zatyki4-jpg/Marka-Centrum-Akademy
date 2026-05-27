@@ -1,208 +1,311 @@
 #!/usr/bin/env python3
 """
-DakPro Academy — import lekcji .md do SQLite (dakpro.db).
+DakPro Academy — import lekcji .md do bazy apki (backend/database.demo.db).
 
-Edytujesz .md -> puszczasz skrypt -> baza zaktualizowana (UPSERT po slug).
-Idempotentny: kolejne uruchomienia aktualizują istniejące lekcje, nie duplikują.
+Wpisuje 5 lekcji jako nowy etap "rf-s0" Constructie en ondergrond
+w kursie Bitumineuze dakbedekking (kurs-roofing-nl).
+
+Parsuje quizy z .md (sekcja "# QUIZ") i wpisuje do tabeli quiz_questions.
+
+Idempotentny: UPSERT po id, kolejne uruchomienia tylko aktualizuja.
 
 Uzycie:
-    python import_lessons.py                 # import do dakpro.db
-    python import_lessons.py --db inna.db    # inna baza
-    python import_lessons.py --dry-run       # pokaz co by zrobil, nie zapisuj
+    python3 import_lessons.py                    # import do backend/database.demo.db
+    python3 import_lessons.py --db inna.db       # inna baza
+    python3 import_lessons.py --dry-run          # pokaz co by zrobil
 """
 
 import argparse
 import os
+import re
 import sqlite3
 import sys
 
 # --- KONFIGURACJA ---------------------------------------------------------
 
-DEFAULT_DB = "dakpro.db"
+DEFAULT_DB = "backend/database.demo.db"
+COURSE_ID = "kurs-roofing-nl"
+STAGE_ID = "rf-s0"
+STAGE_TITLE = "Constructie en ondergrond"
+STAGE_POSITION = 0  # PRZED rf-s1 (position=1)
 
-# Mapowanie plikow lekcji -> metadane.
-# Dopisuj kolejne lekcje na koncu listy gdy je tworzysz.
+# Mapowanie plikow .md -> dane lekcji w apce
 LESSONS = [
-    # === MODUL 1: KONSTRUKCJE I PODLOZA ===
-
-    # Lekcja 1.1 cz.1 - Drewno
     {
-        "module": 1,
-        "lesson": "1.1",
-        "part": 1,
-        "slug": "constructie-hout",
-        "title_pl": "Lekcja 1.1 cz.1 — Konstrukcja drewniana",
-        "title_nl": "Les 1.1 deel 1 — Houten dakconstructie",
-        "title_en": "Lesson 1.1 part 1 — Timber roof construction",
-        "path_pl": "content/module-1/les-1.1-constructie/cz1-drewno.md",
-        "path_nl": None,
-        "path_en": None,
+        "id": "rf-s0-l1",
+        "position": 1,
+        "title": "Constructie 1.1 cz.1 — Houten dakconstructie",
+        "path": "content/module-1/les-1.1-constructie/cz1-drewno.md",
+        "duration_min": 35,
+        "is_free_preview": 1,  # PIERWSZA lekcja jako free preview = marketing
     },
-    # Lekcja 1.1 cz.2 - Staaldek
     {
-        "module": 1,
-        "lesson": "1.1",
-        "part": 2,
-        "slug": "constructie-staaldek",
-        "title_pl": "Lekcja 1.1 cz.2 — Konstrukcja stalowa (staaldek)",
-        "title_nl": "Les 1.1 deel 2 — Stalen dakconstructie (staaldek)",
-        "title_en": "Lesson 1.1 part 2 — Steel deck roof construction",
-        "path_pl": "content/module-1/les-1.1-constructie/cz2-staaldek.md",
-        "path_nl": None,
-        "path_en": None,
+        "id": "rf-s0-l2",
+        "position": 2,
+        "title": "Constructie 1.1 cz.2 — Staaldek (Joris Ide profielplaten)",
+        "path": "content/module-1/les-1.1-constructie/cz2-staaldek.md",
+        "duration_min": 40,
+        "is_free_preview": 0,
     },
-    # Lekcja 1.1 cz.3 - Beton
     {
-        "module": 1,
-        "lesson": "1.1",
-        "part": 3,
-        "slug": "constructie-beton",
-        "title_pl": "Lekcja 1.1 cz.3 — Konstrukcja betonowa",
-        "title_nl": "Les 1.1 deel 3 — Betonnen dakconstructie",
-        "title_en": "Lesson 1.1 part 3 — Concrete roof construction",
-        "path_pl": "content/module-1/les-1.1-constructie/cz3-beton.md",
-        "path_nl": None,
-        "path_en": None,
+        "id": "rf-s0-l3",
+        "position": 3,
+        "title": "Constructie 1.1 cz.3 — Betonnen dakconstructie",
+        "path": "content/module-1/les-1.1-constructie/cz3-beton.md",
+        "duration_min": 30,
+        "is_free_preview": 0,
     },
-    # Lekcja 1.2 - Przygotowanie podloza
     {
-        "module": 1,
-        "lesson": "1.2",
-        "part": 1,
-        "slug": "podloze",
-        "title_pl": "Lekcja 1.2 — Przygotowanie podłoża pod papę",
-        "title_nl": "Les 1.2 — Voorbereiding van de ondergrond",
-        "title_en": "Lesson 1.2 — Substrate preparation for bitumen",
-        "path_pl": "content/module-1/les-1.2-podloze/podloze.md",
-        "path_nl": None,
-        "path_en": None,
+        "id": "rf-s0-l4",
+        "position": 4,
+        "title": "Voorbereiding van de ondergrond (sucho, czysto, spadek, primer)",
+        "path": "content/module-1/les-1.2-podloze/podloze.md",
+        "duration_min": 30,
+        "is_free_preview": 0,
     },
-    # Lekcja 1.3 - Wprowadzenie do papy
     {
-        "module": 1,
-        "lesson": "1.3",
-        "part": 1,
-        "slug": "wprowadzenie-papa",
-        "title_pl": "Lekcja 1.3 — Wprowadzenie do papy",
-        "title_nl": "Les 1.3 — Inleiding tot bitumineuze membranen",
-        "title_en": "Lesson 1.3 — Introduction to bitumen membranes",
-        "path_pl": "content/module-1/les-1.3-wprowadzenie-papa/wprowadzenie-papa.md",
-        "path_nl": None,
-        "path_en": None,
+        "id": "rf-s0-l5",
+        "position": 5,
+        "title": "Inleiding tot bitumineuze membranen (SBS / APP / DUO / wortelwerend)",
+        "path": "content/module-1/les-1.3-wprowadzenie-papa/wprowadzenie-papa.md",
+        "duration_min": 45,
+        "is_free_preview": 0,
     },
-    # --- przyszle lekcje dopisujesz tutaj ---
-    # Lekcja 1.4 - Dampscherm (TO DO)
-    # Lekcja 1.5 - Mocowanie izolacji (TO DO)
-    # ...
 ]
+
+# --- PARSER QUIZU --------------------------------------------------------
+
+def parse_quiz(content):
+    """
+    Parsuje sekcje "# QUIZ" z markdown.
+    Format:
+        # QUIZ ...
+        **1. Pytanie?**
+        A) opcja a
+        B) opcja b
+        C) opcja c
+        D) opcja d
+        **Poprawna: X**
+
+    Zwraca: list[dict] z pytaniami {question, opt_a, opt_b, opt_c, opt_d, correct_index}
+    """
+    if not content:
+        return []
+
+    # Wytnij wszystko od "# QUIZ" w gore
+    m = re.search(r'^#\s+QUIZ\b.*$', content, re.MULTILINE)
+    if not m:
+        return []
+    quiz_section = content[m.end():]
+
+    # Wytnij od "**Koniec lekcji" w dol (zeby nie lapac smieci po quizie)
+    end_m = re.search(r'\*\*Koniec lekcji', quiz_section)
+    if end_m:
+        quiz_section = quiz_section[:end_m.start()]
+
+    questions = []
+    # Pytanie zaczyna sie od **N. ...** gdzie N to liczba
+    # Lapie wszystko az do nastepnego pytania albo konca sekcji
+    pattern = re.compile(
+        r'\*\*(\d+)\.\s+(.+?)\*\*\s*\n+'           # numer + tekst pytania
+        r'(.*?)'                                    # opcje (cokolwiek)
+        r'\*\*Poprawna:\s*([A-D])\*\*',             # poprawna odpowiedz
+        re.DOTALL
+    )
+
+    for m in pattern.finditer(quiz_section):
+        qnum = int(m.group(1))
+        qtext = m.group(2).strip()
+        options_block = m.group(3)
+        correct_letter = m.group(4).strip()
+
+        # Parsuj opcje A)..D)
+        opts = {}
+        for line in options_block.split('\n'):
+            line = line.strip()
+            opt_m = re.match(r'^([A-D])\)\s*(.+)$', line)
+            if opt_m:
+                opts[opt_m.group(1)] = opt_m.group(2).strip()
+
+        # Wszystkie 4 opcje musza byc
+        if not all(k in opts for k in ['A', 'B', 'C', 'D']):
+            print(f"   ! Pytanie {qnum} - brak wszystkich opcji A-D, pomijam")
+            continue
+
+        # correct_index: A=0, B=1, C=2, D=3
+        correct_index = ord(correct_letter) - ord('A')
+
+        questions.append({
+            "position": qnum,
+            "question": qtext,
+            "option_a": opts['A'],
+            "option_b": opts['B'],
+            "option_c": opts['C'],
+            "option_d": opts['D'],
+            "correct_index": correct_index,
+        })
+
+    return questions
+
 
 # --- BAZA ------------------------------------------------------------------
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS lessons (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    module      INTEGER NOT NULL,
-    lesson      TEXT    NOT NULL,
-    part        INTEGER NOT NULL,
-    slug        TEXT    NOT NULL UNIQUE,
-    title_pl    TEXT,
-    title_nl    TEXT,
-    title_en    TEXT,
-    content_pl  TEXT,
-    content_nl  TEXT,
-    content_en  TEXT,
-    updated_at  TEXT DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_lessons_module ON lessons(module);
-CREATE INDEX IF NOT EXISTS idx_lessons_lesson ON lessons(lesson);
+UPSERT_STAGE = """
+INSERT INTO stages (id, course_id, title, position)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    course_id=excluded.course_id,
+    title=excluded.title,
+    position=excluded.position;
 """
 
-UPSERT = """
-INSERT INTO lessons (module, lesson, part, slug,
-                     title_pl, title_nl, title_en,
-                     content_pl, content_nl, content_en, updated_at)
-VALUES (:module, :lesson, :part, :slug,
-        :title_pl, :title_nl, :title_en,
-        :content_pl, :content_nl, :content_en, datetime('now'))
-ON CONFLICT(slug) DO UPDATE SET
-    module=excluded.module,
-    lesson=excluded.lesson,
-    part=excluded.part,
-    title_pl=excluded.title_pl,
-    title_nl=excluded.title_nl,
-    title_en=excluded.title_en,
-    content_pl=excluded.content_pl,
-    content_nl=excluded.content_nl,
-    content_en=excluded.content_en,
-    updated_at=datetime('now');
+UPSERT_LESSON = """
+INSERT INTO lessons (id, stage_id, title, type, content, duration_min, position, is_free_preview)
+VALUES (?, ?, ?, 'text', ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    stage_id=excluded.stage_id,
+    title=excluded.title,
+    type=excluded.type,
+    content=excluded.content,
+    duration_min=excluded.duration_min,
+    position=excluded.position,
+    is_free_preview=excluded.is_free_preview;
+"""
+
+UPSERT_QUIZ_LESSON = """
+INSERT INTO lessons (id, stage_id, title, type, content, duration_min, position, is_free_preview)
+VALUES (?, ?, ?, 'quiz', NULL, ?, ?, 0)
+ON CONFLICT(id) DO UPDATE SET
+    stage_id=excluded.stage_id,
+    title=excluded.title,
+    type=excluded.type,
+    duration_min=excluded.duration_min,
+    position=excluded.position;
+"""
+
+UPSERT_QUESTION = """
+INSERT INTO quiz_questions (id, lesson_id, question, option_a, option_b, option_c, option_d, correct_index, position)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    lesson_id=excluded.lesson_id,
+    question=excluded.question,
+    option_a=excluded.option_a,
+    option_b=excluded.option_b,
+    option_c=excluded.option_c,
+    option_d=excluded.option_d,
+    correct_index=excluded.correct_index,
+    position=excluded.position;
 """
 
 # --- POMOCNICZE ------------------------------------------------------------
 
 def read_md(path):
-    """Wczytaj plik .md, zwroc tresc lub None jak nie istnieje."""
-    if not path:
-        return None
     if not os.path.exists(path):
-        print(f"  UWAGA: brak pliku {path} (pomijam ten jezyk)")
         return None
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Import lekcji .md do SQLite")
+    ap = argparse.ArgumentParser(description="Import lekcji .md do bazy apki")
     ap.add_argument("--db", default=DEFAULT_DB, help="sciezka do bazy SQLite")
     ap.add_argument("--dry-run", action="store_true", help="nie zapisuj, tylko pokaz")
     args = ap.parse_args()
 
-    print(f"== DakPro Academy — import lekcji ==")
-    print(f"Baza: {args.db}  {'(DRY-RUN)' if args.dry_run else ''}\n")
+    print(f"== DakPro Academy — import do apki ==")
+    print(f"Baza: {args.db}  {'(DRY-RUN)' if args.dry_run else ''}")
+    print(f"Kurs: {COURSE_ID}")
+    print(f"Etap: {STAGE_ID} \"{STAGE_TITLE}\" (position={STAGE_POSITION})\n")
+
+    if not os.path.exists(args.db):
+        print(f"BLAD: baza {args.db} nie istnieje!")
+        return 1
 
     if not args.dry_run:
         conn = sqlite3.connect(args.db)
-        conn.executescript(SCHEMA)
+        # Weryfikacja: kurs musi istniec
+        course = conn.execute("SELECT id, title FROM courses WHERE id=?", (COURSE_ID,)).fetchone()
+        if not course:
+            print(f"BLAD: kurs {COURSE_ID} nie istnieje w bazie!")
+            conn.close()
+            return 1
+        print(f"Kurs znaleziony: {course[1]}")
+
+        # Stage
+        conn.execute(UPSERT_STAGE, (STAGE_ID, COURSE_ID, STAGE_TITLE, STAGE_POSITION))
+        print(f"-> Stage {STAGE_ID} zapisany\n")
     else:
         conn = None
+        print(f"(DRY-RUN: nie tworze stage'a)\n")
 
-    imported = 0
-    skipped = 0
+    total_lessons = 0
+    total_questions = 0
+    quiz_lesson_position_offset = len(LESSONS)  # quizy ida po wszystkich lekcjach
+
     for L in LESSONS:
-        print(f"-> {L['slug']}  ({L['title_pl']})")
-        content_pl = read_md(L["path_pl"])
-        content_nl = read_md(L["path_nl"])
-        content_en = read_md(L["path_en"])
-
-        if content_pl is None and content_nl is None and content_en is None:
-            print("   POMIJAM: brak jakiejkolwiek tresci.\n")
-            skipped += 1
+        print(f"-> {L['id']}  ({L['title']})")
+        content = read_md(L["path"])
+        if content is None:
+            print(f"   ! brak pliku {L['path']}, pomijam\n")
             continue
 
-        row = {
-            **{k: L[k] for k in ("module", "lesson", "part", "slug",
-                                 "title_pl", "title_nl", "title_en")},
-            "content_pl": content_pl,
-            "content_nl": content_nl,
-            "content_en": content_en,
-        }
-
-        langs = [name for name, c in
-                 (("PL", content_pl), ("NL", content_nl), ("EN", content_en)) if c]
-        size = len(content_pl or "") + len(content_nl or "") + len(content_en or "")
-        print(f"   jezyki: {', '.join(langs) if langs else 'brak'} | {size} znakow")
+        # Parsuj quiz
+        questions = parse_quiz(content)
+        print(f"   tresc: {len(content)} znakow | quiz: {len(questions)} pytan")
 
         if not args.dry_run:
-            conn.execute(UPSERT, row)
-            imported += 1
+            # Lekcja tekstowa
+            conn.execute(UPSERT_LESSON, (
+                L["id"], STAGE_ID, L["title"], content,
+                L["duration_min"], L["position"], L["is_free_preview"]
+            ))
+            total_lessons += 1
+
+            # Jesli sa pytania - tworz osobna lekcje quiz tussentoets
+            if questions:
+                quiz_lesson_id = f"{L['id']}-q1"
+                quiz_lesson_title = f"Tussentoets — {L['title'].split('—')[-1].strip() if '—' in L['title'] else L['title']}"
+                quiz_lesson_position = quiz_lesson_position_offset + L["position"]
+
+                conn.execute(UPSERT_QUIZ_LESSON, (
+                    quiz_lesson_id, STAGE_ID, quiz_lesson_title,
+                    10, quiz_lesson_position
+                ))
+
+                # Wstaw pytania
+                for q in questions:
+                    qid = f"{quiz_lesson_id}-{q['position']:02d}"
+                    conn.execute(UPSERT_QUESTION, (
+                        qid, quiz_lesson_id,
+                        q["question"], q["option_a"], q["option_b"],
+                        q["option_c"], q["option_d"], q["correct_index"],
+                        q["position"]
+                    ))
+                    total_questions += 1
+                print(f"   -> quiz lesson: {quiz_lesson_id} ({len(questions)} pytan)")
+
         print()
 
     if not args.dry_run:
         conn.commit()
-        total = conn.execute("SELECT COUNT(*) FROM lessons").fetchone()[0]
+        # Weryfikacja
+        n_lessons = conn.execute(
+            "SELECT COUNT(*) FROM lessons WHERE stage_id=?", (STAGE_ID,)
+        ).fetchone()[0]
+        n_quiz_lessons = conn.execute(
+            "SELECT COUNT(*) FROM lessons WHERE stage_id=? AND type='quiz'", (STAGE_ID,)
+        ).fetchone()[0]
+        n_questions = conn.execute(
+            """SELECT COUNT(*) FROM quiz_questions q
+               JOIN lessons l ON q.lesson_id = l.id
+               WHERE l.stage_id=?""", (STAGE_ID,)
+        ).fetchone()[0]
         conn.close()
-        print(f"OK. Zaimportowano/zaktualizowano: {imported}. Pominieto: {skipped}. W bazie: {total}.")
+        print(f"OK. W etapie {STAGE_ID}: lekcji={n_lessons} (w tym quizow={n_quiz_lessons}), pytan={n_questions}")
     else:
-        print(f"DRY-RUN zakonczony. Bylo by: import={imported}, skip={skipped}.")
+        print(f"DRY-RUN: byloby {total_lessons} lekcji + {total_questions} pytan")
+
+    return 0
 
 
 if __name__ == "__main__":
