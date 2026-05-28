@@ -1,0 +1,65 @@
+From be2423d7a54033fca32cec1435b736cc5d7a527b Mon Sep 17 00:00:00 2001
+From: Mariusz <marka.dakinfo@gmail.com>
+Date: Thu, 28 May 2026 22:40:53 +0000
+Subject: [PATCH] Fix 'Failed to fetch': backend serveert frontend + relatieve
+ API_BASE
+
+---
+ backend/server.js      | 11 ++++++++++-
+ frontend/public/app.js |  6 +++---
+ 2 files changed, 13 insertions(+), 4 deletions(-)
+
+diff --git a/backend/server.js b/backend/server.js
+index 64affc7..3f099b0 100644
+--- a/backend/server.js
++++ b/backend/server.js
+@@ -2,6 +2,7 @@
+ require("dotenv").config();
+ const express = require("express");
+ const cors = require("cors");
++const path = require("path");
+ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY || "sk_test_placeholder");
+ const { get, all, run } = require("./db");
+ 
+@@ -12,7 +13,12 @@ app.use(cors());
+ app.use("/stripe/webhook", express.raw({ type: "application/json" }));
+ app.use(express.json());
+ 
+-app.get("/", (req, res) => res.json({ status: "ok", service: "DakPro Academy API", version: "2.0.0" }));
++// ── Frontend (PWA) serveren vanaf dezelfde origin ─────────────
++// Lost "Failed to fetch" op: frontend + API draaien nu op één domein.
++const PUBLIC_DIR = path.join(__dirname, "../frontend/public");
++app.use(express.static(PUBLIC_DIR));
++
++app.get("/health", (req, res) => res.json({ status: "ok", service: "DakPro Academy API", version: "2.0.0" }));
+ 
+ // ── GET /catalog-with-access?email= ───────────────────────────
+ app.get("/catalog-with-access", async (req, res) => {
+@@ -162,4 +168,7 @@ app.post("/stripe/webhook", async (req, res) => {
+   res.json({ received: true });
+ });
+ 
++// ── Fallback: alles wat geen API-route is → frontend index.html ──
++app.get("*", (req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
++
+ app.listen(PORT, "0.0.0.0", () => console.log(`DakPro API v2 on port ${PORT}`));
+diff --git a/frontend/public/app.js b/frontend/public/app.js
+index e108d54..88376e3 100644
+--- a/frontend/public/app.js
++++ b/frontend/public/app.js
+@@ -1,9 +1,9 @@
+ // DakPro Academy — app.js v2
+ // ─────────────────────────────────────────────────────────────
+-// Pas API_BASE aan naar jouw Codespaces URL!
+-// const API_BASE = "https://[jouw-naam]-3000.app.github.dev";
++// API_BASE leeg = zelfde origin als de pagina (backend serveert nu ook de frontend).
++// Werkt automatisch op localhost, Codespaces én Railway. Niet meer handmatig aanpassen.
+ // ─────────────────────────────────────────────────────────────
+-const API_BASE = "http://localhost:3000";
++const API_BASE = "";
+ 
+ // Stripe Payment Links — vervang met je echte links na Stripe setup
+ const BUY_URLS = {
+-- 
+2.43.0
+
