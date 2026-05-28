@@ -3,7 +3,7 @@
 // Pas API_BASE aan naar jouw Codespaces URL!
 // const API_BASE = "https://[jouw-naam]-3000.app.github.dev";
 // ─────────────────────────────────────────────────────────────
-const API_BASE = "http://localhost:3000";
+const API_BASE = "https://bookish-palm-tree-v64jpgj9x99v24xw-3000.app.github.dev";
 
 // Stripe Payment Links — vervang met je echte links na Stripe setup
 const BUY_URLS = {
