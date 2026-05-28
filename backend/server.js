@@ -2,6 +2,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY || "sk_test_placeholder");
 const { get, all, run } = require("./db");
 
@@ -12,7 +13,9 @@ app.use(cors());
 app.use("/stripe/webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
 
-app.get("/", (req, res) => res.json({ status: "ok", service: "DakPro Academy API", version: "2.0.0" }));
+const PUBLIC_DIR = path.join(__dirname, "../frontend/public");
+app.use(express.static(PUBLIC_DIR));
+app.get("/health", (req, res) => res.json({ status: "ok", service: "DakPro Academy API", version: "2.0.0" }));
 
 // ── GET /catalog-with-access?email= ───────────────────────────
 app.get("/catalog-with-access", async (req, res) => {
@@ -162,4 +165,5 @@ app.post("/stripe/webhook", async (req, res) => {
   res.json({ received: true });
 });
 
+app.get("*", (req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
 app.listen(PORT, "0.0.0.0", () => console.log(`DakPro API v2 on port ${PORT}`));
