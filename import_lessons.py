@@ -71,6 +71,14 @@ LESSONS = [
         "duration_min": 45,
         "is_free_preview": 0,
     },
+{
+        "id": "rf-s0-l6",
+        "position": 6,
+        "title": "Dampscherm (paroizolacja) — V3/P3, primer, drukschotels",
+        "path": "content/module-1/les-1.4-dampscherm/Lekcja_1.4_Dampscherm_v2.md",
+        "duration_min": 35,
+        "is_free_preview": 0,
+    },
 ]
 
 # --- PARSER QUIZU --------------------------------------------------------
