@@ -253,6 +253,23 @@ async function openLesson(lessonId) {
   }
 }
 
+// Rendert les-inhoud: markdown (nieuwe lessen) of HTML (seed) -> veilige HTML.
+// marked verwerkt markdown; bestaande HTML-blokken laat het ongemoeid.
+function renderContent(raw) {
+  if (!raw) return "";
+  try {
+    var html = (typeof marked !== "undefined")
+      ? marked.parse(raw, { gfm: true, breaks: false })
+      : raw;
+    if (typeof DOMPurify !== "undefined") {
+      html = DOMPurify.sanitize(html, { ADD_ATTR: ["target"] });
+    }
+    return html;
+  } catch (e) {
+    return raw;
+  }
+}
+
 function renderLesson(lesson) {
   document.getElementById("lesson-title").textContent = lesson.title;
   const area = document.getElementById("lesson-content");
@@ -264,12 +281,12 @@ function renderLesson(lesson) {
         </div>
         <div class="video-duration">${lesson.duration_min} min</div>
       </div>
-      ${lesson.content ? `<div class="lesson-text">${lesson.content}</div>` : ""}
+      ${lesson.content ? `<div class="lesson-text">${renderContent(lesson.content)}</div>` : ""}
       <div style="margin-top:20px;"><button class="btn btn-primary btn-full" onclick="completeLesson('${lesson.id}')">Les voltooid ✓</button></div>
     </div>`;
   } else if (lesson.type === "text") {
     area.innerHTML = `<div class="content-area">
-      <div class="lesson-text">${lesson.content || ""}</div>
+      <div class="lesson-text">${renderContent(lesson.content)}</div>
       <div style="margin-top:20px;"><button class="btn btn-primary btn-full" onclick="completeLesson('${lesson.id}')">Les gelezen ✓</button></div>
     </div>`;
   } else if (lesson.type === "quiz") {
