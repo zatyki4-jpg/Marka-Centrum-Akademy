@@ -29,6 +29,10 @@ STAGE_ID = "rf-s0"
 STAGE_TITLE = "Constructie en ondergrond"
 STAGE_POSITION = 0  # PRZED rf-s1 (position=1)
 
+# Baza do zdjec: front jest serwowany z frontend/public, wiec wzgledne 'img/...'
+# w tresci lekcji nie rozwiazuja sie. Podmieniamy je na pelne raw.githubusercontent URL-e.
+GITHUB_RAW_BASE = "https://raw.githubusercontent.com/zatyki4-jpg/Marka-Centrum-Akademy/main"
+
 # Mapowanie plikow .md -> dane lekcji w apce
 LESSONS = [
     {
@@ -301,6 +305,20 @@ def read_md(path):
         return f.read()
 
 
+def rewrite_image_paths(content, md_path):
+    """Zamienia wzgledne 'img/...' na pelne raw.githubusercontent URL-e.
+    Front serwuje z frontend/public, wiec wzgledne sciezki lekcji sie nie rozwiazuja.
+    Dziala i dla markdownu ![alt](img/..) i dla HTML src="img/..".
+    """
+    if not content:
+        return content
+    folder = os.path.dirname(md_path).replace(os.sep, "/")
+    base = f"{GITHUB_RAW_BASE}/{folder}/img/"
+    content = re.sub(r'(\]\()img/', r'\1' + base, content)
+    content = re.sub(r'(src=["\'])img/', r'\1' + base, content)
+    return content
+
+
 def main():
     ap = argparse.ArgumentParser(description="Import lekcji .md do bazy apki")
     ap.add_argument("--db", default=DEFAULT_DB, help="sciezka do bazy SQLite")
@@ -343,6 +361,7 @@ def main():
         if content is None:
             print(f"   ! brak pliku {L['path']}, pomijam\n")
             continue
+        content = rewrite_image_paths(content, L["path"])
 
         # Parsuj quiz
         questions = parse_quiz(content)
