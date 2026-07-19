@@ -79,6 +79,14 @@ LESSONS = [
         "duration_min": 35,
         "is_free_preview": 0,
     },
+    {
+        "id": "rf-s0-l7",
+        "position": 7,
+        "title": "Thermische isolatie (λ/Rd, PIR, pas wełny, driehoeken, brandmuur)",
+        "path": "content/module-1/les-1.5-isolatie/Lekcja_1.5_Isolatie_v4.md",
+        "duration_min": 40,
+        "is_free_preview": 0,
+    },
 ]
 
 # --- PARSER QUIZU --------------------------------------------------------
