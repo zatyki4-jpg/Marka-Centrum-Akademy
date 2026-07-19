@@ -1,4 +1,4 @@
-const CACHE = "dakpro-v3";
+const CACHE = "dakpro-v4";
 const ASSETS = ["/", "/index.html", "/app.js", "/style.css", "/manifest.json"];
 
 self.addEventListener("install", e => {
