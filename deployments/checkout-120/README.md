@@ -41,7 +41,7 @@ docker ps --format '{{.Names}}' | grep -Ex 'mca-course-test|marka-course-academy
 The recorded production web container is `mca-course-test`. Select the active Academy web container returned by the host. After all runtime settings are present, run:
 
 ```sh
-python3 release.py deploy --container mca-course-test --secrets /srv/marka-course-academy/private/stripe-checkout.env
+python3 release.py deploy
 ```
 
 The runner discovers the running service's Compose project, copies its source to a new release, applies the checked patch, builds the new image, and installs the transactionally guarded schema on `mca-sb-db`. It restarts only the existing web service and waits for Docker health. Failed replacements automatically restore the previous service. To restore the previous application manually, run:
@@ -55,3 +55,9 @@ The payment schema and recorded payment history remain available after applicati
 ## Acceptance
 
 Test with separate Stripe test-mode and Supabase staging configuration. Open each course as a signed-in test student, verify the checkout shows EUR 120 once, and complete using Stripe test payment details. Inspect the paid order, its matching enrollment with a null expiry, and the student's course panel. Repeat webhook delivery to confirm it produces one enrollment. An unpaid or canceled checkout must leave the course locked. Confirm that an authenticated existing enrollment and protected promotional access continue to work. Publishing the patch, building the image, and successful unit tests alone do not establish that a live charge and live course access have been observed.
+
+## Live price verification
+
+After production deployment, run `python3 smoke.py` on the Academy host as root. The command sends authenticated requests through the real course checkout for both products. It checks the held-open sessions directly with Stripe, including the EUR 120 amount, one-time price, product and quantity. It creates a randomized QA learner on the local Academy backend and sends no email. It never submits payment details.
+
+The command expires the two sessions, waits for the Academy webhook to record the expirations, then removes the marker-matched QA user and its associated rows. Stripe retains its expired session records. If any session is paid, still usable, or cannot be reconciled, the script retains the QA account and prints a random marker for `python3 smoke.py --cleanup MARKER`. On an interrupted run, use the marker printed at startup. The command emits no checkout URLs, credentials, email addresses or customer records.
