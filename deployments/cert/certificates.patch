@@ -1,0 +1,179 @@
+diff --git a/src/lib/i18n.tsx b/src/lib/i18n.tsx
+index 1c934e0..25d150a 100644
+--- a/src/lib/i18n.tsx
++++ b/src/lib/i18n.tsx
+@@ -795,6 +795,10 @@ Object.assign(pl, {
+   "cert.verifyTitle": "Weryfikacja certyfikatu",
+   "cert.valid": "Ważny",
+   "cert.invalid": "Nieważny",
++  "cert.verifyError": "Nie udało się sprawdzić certyfikatu.",
++  "cert.listError": "Nie udało się pobrać listy certyfikatów.",
++  "common.retry": "Spróbuj ponownie",
++  "cert.revoked": "Unieważniony",
+   "cert.notFound": "Nie znaleziono certyfikatu o numerze",
+   "cert.fullName": "Imię i nazwisko",
+   "cert.course": "Kurs",
+@@ -843,6 +847,10 @@ Object.assign(nl, {
+   "cert.verifyTitle": "Certificaatverificatie",
+   "cert.valid": "Geldig",
+   "cert.invalid": "Ongeldig",
++  "cert.verifyError": "Het certificaat kon niet worden gecontroleerd.",
++  "cert.listError": "De lijst met certificaten kon niet worden geladen.",
++  "common.retry": "Opnieuw proberen",
++  "cert.revoked": "Ingetrokken",
+   "cert.notFound": "Geen certificaat gevonden met nummer",
+   "cert.fullName": "Naam",
+   "cert.course": "Cursus",
+@@ -891,6 +899,10 @@ Object.assign(en, {
+   "cert.verifyTitle": "Certificate verification",
+   "cert.valid": "Valid",
+   "cert.invalid": "Invalid",
++  "cert.verifyError": "We couldn’t verify the certificate.",
++  "cert.listError": "We couldn’t load your certificates.",
++  "common.retry": "Try again",
++  "cert.revoked": "Revoked",
+   "cert.notFound": "No certificate found with number",
+   "cert.fullName": "Full name",
+   "cert.course": "Course",
+@@ -1194,6 +1206,10 @@ const fr: Dict = {
+   "cert.verifyTitle": "Vérification du certificat",
+   "cert.valid": "Valide",
+   "cert.invalid": "Non valide",
++  "cert.verifyError": "La vérification du certificat a échoué.",
++  "cert.listError": "Impossible de charger vos certificats.",
++  "common.retry": "Réessayer",
++  "cert.revoked": "Révoqué",
+   "cert.notFound": "Aucun certificat trouvé avec le numéro",
+   "cert.fullName": "Nom et prénom",
+   "cert.course": "Formation",
+diff --git a/src/lib/locales/de.json b/src/lib/locales/de.json
+index 564644b..fc3bdc7 100644
+--- a/src/lib/locales/de.json
++++ b/src/lib/locales/de.json
+@@ -104,6 +104,10 @@
+   "cert.fullName": "Vor- und Nachname",
+   "cert.goToCertificates": "Zertifikat ansehen",
+   "cert.invalid": "Ungültig",
++  "cert.verifyError": "Das Zertifikat konnte nicht überprüft werden.",
++  "cert.listError": "Ihre Zertifikate konnten nicht geladen werden.",
++  "common.retry": "Erneut versuchen",
++  "cert.revoked": "Widerrufen",
+   "cert.issuedAt": "Ausstellungsdatum",
+   "cert.notFound": "Kein Zertifikat mit der Nummer gefunden",
+   "cert.number": "Zertifikatsnummer",
+diff --git a/src/routes/_authenticated/panel.certyfikaty.tsx b/src/routes/_authenticated/panel.certyfikaty.tsx
+index 1ad06d5..d517c88 100644
+--- a/src/routes/_authenticated/panel.certyfikaty.tsx
++++ b/src/routes/_authenticated/panel.certyfikaty.tsx
+@@ -36,7 +36,7 @@ function CertificatesPage() {
+   const { t, lang } = useI18n();
+   const [busy, setBusy] = useState<string | null>(null);
+ 
+-  const { data, isLoading } = useQuery({
++  const { data, isPending, isError, fetchStatus, refetch } = useQuery({
+     queryKey: ["certificates", user?.id, lang],
+     enabled: !!user,
+     queryFn: async () => {
+@@ -83,7 +83,14 @@ function CertificatesPage() {
+         <h1 className="mt-6 text-3xl font-bold text-gold">{t("cert.tab")}</h1>
+         <p className="mt-2 text-muted-foreground">{t("cert.subtitle")}</p>
+ 
+-        {isLoading ? (
++        {isError || fetchStatus === "paused" ? (
++          <div role="alert" className="mt-8 rounded-xl border border-border bg-card p-6 text-center">
++            <p>{t("cert.listError")}</p>
++            <Button variant="outline" size="sm" className="mt-4" onClick={() => void refetch()} disabled={fetchStatus === "fetching"}>
++              {t("common.retry")}
++            </Button>
++          </div>
++        ) : isPending ? (
+           <Skeleton className="mt-8 h-40 w-full rounded-xl" />
+         ) : !data?.length ? (
+           <div className="mt-8 rounded-xl border border-border bg-card p-8 text-center">
+@@ -113,7 +120,7 @@ function CertificatesPage() {
+                           : "bg-accent-soft text-accent hover:bg-accent-soft"
+                       }
+                     >
+-                      {cert.is_valid ? t("cert.valid") : t("cert.invalid")}
++                      {cert.is_valid ? t("cert.valid") : t("cert.revoked")}
+                     </Badge>
+                     <Button
+                       variant="accent"
+diff --git a/src/routes/certificate.$number.tsx b/src/routes/certificate.$number.tsx
+index 465dbd1..80b9d8a 100644
+--- a/src/routes/certificate.$number.tsx
++++ b/src/routes/certificate.$number.tsx
+@@ -1,6 +1,6 @@
+ import { createFileRoute, Link } from "@tanstack/react-router";
+ import { useQuery } from "@tanstack/react-query";
+-import { BadgeCheck, ShieldX } from "lucide-react";
++import { BadgeCheck, SearchX, ShieldX } from "lucide-react";
+ import { SiteHeader } from "@/components/SiteHeader";
+ import { SiteFooter } from "@/components/SiteFooter";
+ import { Button } from "@/components/ui/button";
+@@ -31,7 +31,7 @@ function VerifyCertificatePage() {
+   const { number } = Route.useParams();
+   const { t, lang } = useI18n();
+ 
+-  const { data, isLoading } = useQuery({
++  const { data, isPending, isError, fetchStatus, refetch } = useQuery({
+     queryKey: ["certificate", number, lang],
+     queryFn: async () => {
+       const { data: rows, error } = await supabase.rpc("verify_certificate_localized", { _number: number, _locale: lang });
+@@ -47,14 +47,20 @@ function VerifyCertificatePage() {
+         <h1 className="text-center text-3xl font-bold text-gold">{t("cert.verifyTitle")}</h1>
+         <p className="mt-2 text-center text-sm text-muted-foreground">Marka Centrum Academy</p>
+ 
+-        {isLoading ? (
++        {isError || fetchStatus === "paused" ? (
++          <div role="alert" className="mt-8 rounded-xl border border-border bg-card p-6 text-center">
++            <p>{t("cert.verifyError")}</p>
++            <Button variant="outline" size="sm" className="mt-4" onClick={() => void refetch()} disabled={fetchStatus === "fetching"}>
++              {t("common.retry")}
++            </Button>
++          </div>
++        ) : isPending ? (
+           <Skeleton className="mt-8 h-56 w-full rounded-xl" />
+         ) : !data ? (
+           <div className="mt-8 rounded-xl border border-accent/40 bg-card p-6 text-center">
+-            <ShieldX className="mx-auto size-10 text-accent" />
+-            <p className="mt-3 text-lg font-semibold text-accent">{t("cert.invalid")}</p>
+-            <p className="mt-1 text-sm text-muted-foreground">
+-              {t("cert.notFound")} {number}
++            <SearchX className="mx-auto size-10 text-muted-foreground" />
++            <p className="mt-3 text-foreground">
++              {t("cert.notFound")} <span className="font-mono">{number}</span>
+             </p>
+           </div>
+         ) : (
+@@ -68,7 +74,7 @@ function VerifyCertificatePage() {
+               <span
+                 className={`text-lg font-semibold ${data.is_valid ? "text-success" : "text-accent"}`}
+               >
+-                {data.is_valid ? t("cert.valid") : t("cert.invalid")}
++                {data.is_valid ? t("cert.valid") : t("cert.revoked")}
+               </span>
+             </div>
+             <dl className="mt-6 space-y-4 text-sm">
+--- a/src/lib/certificate.ts
++++ b/src/lib/certificate.ts
+@@ -65,11 +65,17 @@
+   doc.setFont('MCASans'); doc.setFontSize(8); doc.text('Marka Centrum Academy',148.5,197,{align:'center'});
+   const url=certificateUrl(cert.number);
+   const qr=await QRCode.toDataURL(url,{margin:4,width:400,errorCorrectionLevel:'M',color:{dark:'#0C2238',light:'#FFFFFF'}});
+-  doc.addImage(qr,'PNG',243,160,30,30); doc.setFontSize(7); doc.text(copy.verify,258,195,{align:'center'});
++  // Leave room between the longest translated caption and the bottom-right border.
++  const qrCenterX = 244;
++  const qrSize = 30;
++  doc.addImage(qr, 'PNG', qrCenterX - qrSize / 2, 160, qrSize, qrSize);
++  doc.setFontSize(7);
++  doc.text(copy.verify, qrCenterX, 195, { align: 'center' });
+   doc.setProperties({title:`${copy.title} — ${cert.number}`,author:'Marka Construct BV / Marka Centrum Academy',subject:localizedTitle});
+   return doc;
+ }
+ export async function downloadCertificatePdf(cert: Certificate, lang: Lang = 'pl', localizedTitle = cert.course_title) {
+   const doc = await createCertificatePdf(cert,lang,localizedTitle);
+-  doc.save(`MCA-${cert.number}-${lang.toUpperCase()}.pdf`);
++  const fileNumber = /^MCA-/i.test(cert.number) ? cert.number : `MCA-${cert.number}`;
++  doc.save(`${fileNumber}-${lang.toUpperCase()}.pdf`);
+ }
