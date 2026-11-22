@@ -114,15 +114,13 @@ def migrate(source):
 
 def validate_runtime(env):
     names = ("STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_PRICE_BASIC", "STRIPE_PRICE_RENOVATION",
-             "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY", "MCA_PAID_ACCESS_DAYS")
+             "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY")
     missing = [key for key in names if not env.get(key)]
     require(not missing, "Missing runtime settings: " + ", ".join(missing))
     require(re.fullmatch(r"(?:sk|rk)_live_[a-zA-Z0-9]+", env["STRIPE_SECRET_KEY"]), "Production requires a live Stripe key")
     require(re.fullmatch(r"whsec_[a-zA-Z0-9]+", env["STRIPE_WEBHOOK_SECRET"]), "Invalid webhook signing configuration")
     require(all(re.fullmatch(r"price_[a-zA-Z0-9]+", env[key]) for key in names[2:4]), "Invalid price configuration")
     require(env[names[2]] != env[names[3]], "The courses need separate Stripe prices")
-    days = env["MCA_PAID_ACCESS_DAYS"]
-    require(days.isdigit() and 1 <= int(days) <= 36500, "Set the approved initial course-access period")
     require(env.get("MCA_CHECKOUT_ORIGIN", "https://markacentrumacademy.eu") == "https://markacentrumacademy.eu",
             "The production checkout origin must match the Academy website")
 

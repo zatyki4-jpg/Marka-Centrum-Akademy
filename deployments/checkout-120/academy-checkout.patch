@@ -91,12 +91,75 @@ index 0000000000000000000000000000000000000000..53d282d1366d5b9c2216243e57b025a9
 +    {failed && <p role="alert" className="text-sm text-destructive">{copy[lang].error}</p>}
 +  </>;
 +}
+diff --git a/src/lib/i18n.tsx b/src/lib/i18n.tsx
+index 49c1c9b221af28655acebc0c436be28ee6b5c56c..1c934e0f167c02daaad33f679b2d8e7895f96bd8 100644
+--- a/src/lib/i18n.tsx
++++ b/src/lib/i18n.tsx
+@@ -68,8 +68,8 @@ const pl: Dict = {
+   "included.i1": "pełny kurs — 10 kompletnych modułów od podstaw po zaawansowane detale",
+   "included.i2": "quizy po każdym etapie oraz egzamin końcowy",
+   "included.i3": "certyfikat PDF z unikalnym numerem i kodem QR",
+-  "included.i4": "dostęp online 24/7 przez cały okres aktywnego dostępu do kursu",
+-  "included.i5": "dostęp bezterminowy odblokowany po zdaniu egzaminu końcowego",
++  "included.i4": "bezterminowy dostęp od zakupu. Uczysz się we własnym tempie i samodzielnie wybierasz termin egzaminu",
++  "included.i5": "wszystkie materiały kursu pozostają dostępne online 24/7 także po egzaminie",
+   "course.vatNote": "Informacja o VAT jest pokazywana przed płatnością.",
+   "course.translationIncomplete":
+     "Tłumaczenie tej treści nie jest jeszcze kompletne w wybranym języku.",
+@@ -216,8 +216,8 @@ const nl: Dict = {
+   "included.i1": "volledige cursus — 10 complete modules, van de basis tot geavanceerde dakdetails",
+   "included.i2": "quizzen na elke module en het eindexamen",
+   "included.i3": "PDF-certificaat met uniek nummer en QR-code",
+-  "included.i4": "24/7 online toegang zolang je toegang tot de cursus actief is",
+-  "included.i5": "levenslange toegang wordt vrijgegeven na het slagen voor het eindexamen",
++  "included.i4": "onbeperkte toegang vanaf je aankoop. Je leert op je eigen tempo en kiest zelf wanneer je het examen aflegt",
++  "included.i5": "ook na het examen blijft al het cursusmateriaal de klok rond beschikbaar",
+   "course.vatNote": "De btw-informatie wordt vóór de betaling getoond.",
+   "course.translationIncomplete":
+     "De vertaling van deze inhoud is nog niet volledig in de gekozen taal.",
+@@ -364,8 +364,8 @@ const en: Dict = {
+   "included.i1": "10 complete training modules — from fundamentals to advanced roofing details",
+   "included.i2": "quizzes after every module and the final exam",
+   "included.i3": "PDF certificate with a unique number and QR code",
+-  "included.i4": "24/7 online access for as long as your course access is active",
+-  "included.i5": "lifetime access is unlocked after passing the final exam",
++  "included.i4": "lifetime access from purchase. Study at your own pace and take the exam whenever you are ready",
++  "included.i5": "all course materials remain available online 24/7 after the exam",
+   "course.vatNote": "VAT details are shown before payment.",
+   "course.translationIncomplete":
+     "The translation of this content is not complete yet in the selected language.",
+@@ -994,8 +994,8 @@ const fr: Dict = {
+   "included.i1": "formation complète — 10 modules complets, des bases aux détails avancés",
+   "included.i2": "quiz après chaque module et examen final",
+   "included.i3": "certificat PDF avec numéro unique et code QR",
+-  "included.i4": "accès en ligne 24/7 pendant toute la durée de votre accès à la formation",
+-  "included.i5": "l'accès illimité est débloqué après la réussite de l'examen final",
++  "included.i4": "accès sans limite de durée dès l’achat. Étudiez à votre rythme et passez l’examen quand vous le souhaitez",
++  "included.i5": "tous les supports de formation restent accessibles en ligne 24 h/24, même après l’examen",
+   "course.vatNote": "Les informations de TVA sont affichées avant le paiement.",
+   "course.translationIncomplete":
+     "La traduction de ce contenu n'est pas encore complète dans la langue choisie.",
+diff --git a/src/lib/locales/de.json b/src/lib/locales/de.json
+index 704d14a8a70b304457cc864e5ed87399a818cf86..564644b5ab52e152bf644bcfabce2fc3d5ed65f5 100644
+--- a/src/lib/locales/de.json
++++ b/src/lib/locales/de.json
+@@ -189,8 +189,8 @@
+   "included.i1": "vollständiger Kurs — 10 komplette Module von den Grundlagen bis zu fortgeschrittenen Details",
+   "included.i2": "Quizze nach jeder Etappe sowie die Abschlussprüfung",
+   "included.i3": "PDF-Zertifikat mit eindeutiger Nummer und QR-Code",
+-  "included.i4": "Online-Zugang rund um die Uhr während der gesamten Dauer des aktiven Kurszugangs",
+-  "included.i5": "unbegrenzter Zugang wird nach Bestehen der Abschlussprüfung freigeschaltet",
++  "included.i4": "Unbefristeter Zugang ab dem Kauf. Sie lernen in Ihrem eigenen Tempo und entscheiden selbst, wann Sie die Prüfung ablegen",
++  "included.i5": "Alle Kursmaterialien bleiben auch nach der Prüfung rund um die Uhr online verfügbar",
+   "included.title": "Im Preis enthalten (einmalige Zahlung)",
+   "lesson.doneToast": "Lektion abgeschlossen!",
+   "lesson.downloadPdf": "PDF-Material herunterladen",
 diff --git a/src/lib/mca-checkout.server.ts b/src/lib/mca-checkout.server.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..3208f65cb08095d17a27271a8ed72d4025117db2
+index 0000000000000000000000000000000000000000..3f1bc20c10a97469cb0bd248f726ac95544014a6
 --- /dev/null
 +++ b/src/lib/mca-checkout.server.ts
-@@ -0,0 +1,135 @@
+@@ -0,0 +1,133 @@
 +import { mcaRpc } from "./mca-rpc.server.ts";
 +
 +const basic = "11111111-1111-4111-8111-111111111111";
@@ -180,11 +243,9 @@ index 0000000000000000000000000000000000000000..3208f65cb08095d17a27271a8ed72d40
 +
 +    const key = process.env["STRIPE_SECRET_KEY"] ?? "";
 +    const price = courseId === basic ? process.env["STRIPE_PRICE_BASIC"] : process.env["STRIPE_PRICE_RENOVATION"];
-+    const accessDays = Number(process.env["MCA_PAID_ACCESS_DAYS"]);
 +    const live = /^(sk|rk)_live_/.test(key);
 +    if (!/^whsec_\S+$/.test(process.env["STRIPE_WEBHOOK_SECRET"] ?? "") || !/^(sk|rk)_(test|live)_\S+$/.test(key) || !price || !/^price_[A-Za-z0-9]+$/.test(price) ||
 +        process.env["STRIPE_PRICE_BASIC"] === process.env["STRIPE_PRICE_RENOVATION"] ||
-+        !Number.isSafeInteger(accessDays) || accessDays < 1 || accessDays > 36500 ||
 +        (live && origin !== canonicalOrigin) || (!live && origin === canonicalOrigin)) {
 +      return reply({ error: "checkout_unavailable" }, 503);
 +    }
@@ -192,7 +253,7 @@ index 0000000000000000000000000000000000000000..3208f65cb08095d17a27271a8ed72d40
 +    // A rotation after a Stripe-confirmed expiration needs exactly one new reservation.
 +    for (let attempt = 0; attempt < 2; attempt++) {
 +      const order: Reservation = await mcaRpc<Reservation>("mca_prepare_checkout", {
-+        p_user_id: userId, p_course_id: courseId, p_live: live, p_access_days: accessDays,
++        p_user_id: userId, p_course_id: courseId, p_live: live,
 +      });
 +      if (order.status === "already_enrolled" || order.status === "processing") return reply({ status: order.status });
 +      if (order.status !== "pending" || !order.order_id || !order.slug) throw new Error("Invalid order");
@@ -645,10 +706,10 @@ index 8006de09114386a9ff26b60b3d60a250fe82aa92..79bd38a6110d5879290f59f464d9e902
                    </Button>
 diff --git a/supabase/migrations/20261122234000_mca_stripe_checkout.sql b/supabase/migrations/20261122234000_mca_stripe_checkout.sql
 new file mode 100644
-index 0000000000000000000000000000000000000000..fb9508486adfd43917693c5aa3ee438c6e19c144
+index 0000000000000000000000000000000000000000..0d0d4bc19e6f18a715044876b48aeb7f18bee39c
 --- /dev/null
 +++ b/supabase/migrations/20261122234000_mca_stripe_checkout.sql
-@@ -0,0 +1,142 @@
+@@ -0,0 +1,139 @@
 +BEGIN;
 +
 +-- Mirror the published one-off prices on installations bootstrapped from the older seed.
@@ -663,7 +724,6 @@ index 0000000000000000000000000000000000000000..fb9508486adfd43917693c5aa3ee438c
 +  title text NOT NULL,
 +  slug text NOT NULL,
 +  live boolean NOT NULL,
-+  access_days integer NOT NULL CHECK (access_days > 0 AND access_days <= 36500),
 +  status text NOT NULL DEFAULT 'pending'
 +    CHECK (status IN ('pending', 'processing', 'expired', 'failed', 'paid')),
 +  session_id text UNIQUE,
@@ -679,14 +739,14 @@ index 0000000000000000000000000000000000000000..fb9508486adfd43917693c5aa3ee438c
 +REVOKE ALL ON public.mca_checkout_orders FROM PUBLIC, anon, authenticated, service_role;
 +
 +CREATE FUNCTION public.mca_prepare_checkout(
-+  p_user_id uuid, p_course_id uuid, p_live boolean, p_access_days integer
++  p_user_id uuid, p_course_id uuid, p_live boolean
 +) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 +DECLARE
 +  selected_course public.courses;
 +  sale public.mca_checkout_orders;
 +BEGIN
 +  IF p_course_id NOT IN ('11111111-1111-4111-8111-111111111111','f166433e-5157-4341-9a38-800c62795ebd')
-+     OR p_live IS NULL OR p_user_id IS NULL OR p_access_days IS NULL OR p_access_days NOT BETWEEN 1 AND 36500 THEN
++     OR p_live IS NULL OR p_user_id IS NULL THEN
 +    RAISE EXCEPTION 'invalid_course_purchase';
 +  END IF;
 +  SELECT * INTO selected_course FROM public.courses
@@ -709,8 +769,8 @@ index 0000000000000000000000000000000000000000..fb9508486adfd43917693c5aa3ee438c
 +  SELECT * INTO sale FROM public.mca_checkout_orders WHERE user_id=p_user_id AND course_id=p_course_id
 +    AND live=p_live AND status IN ('pending','processing') FOR UPDATE;
 +  IF NOT FOUND THEN
-+    INSERT INTO public.mca_checkout_orders(user_id,course_id,title,slug,live,access_days)
-+    VALUES (p_user_id,p_course_id,selected_course.title,selected_course.slug,p_live,p_access_days) RETURNING * INTO sale;
++    INSERT INTO public.mca_checkout_orders(user_id,course_id,title,slug,live)
++    VALUES (p_user_id,p_course_id,selected_course.title,selected_course.slug,p_live) RETURNING * INTO sale;
 +  END IF;
 +  RETURN jsonb_build_object('status',sale.status,'order_id',sale.id,'session_id',sale.session_id,
 +    'title',sale.title,'slug',sale.slug,'created_at',sale.created_at,
@@ -742,7 +802,6 @@ index 0000000000000000000000000000000000000000..fb9508486adfd43917693c5aa3ee438c
 +) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 +DECLARE
 +  sale public.mca_checkout_orders;
-+  access_until timestamptz;
 +BEGIN
 +  IF p_state IS NULL OR p_state NOT IN ('paid','processing','failed','expired') THEN
 +    RAISE EXCEPTION 'invalid_event_state';
@@ -768,24 +827,23 @@ index 0000000000000000000000000000000000000000..fb9508486adfd43917693c5aa3ee438c
 +    END IF;
 +    RETURN;
 +  END IF;
-+  access_until := p_paid_at + make_interval(days => sale.access_days);
++  -- A paid course has lifetime access immediately, including its materials after certification.
 +  INSERT INTO public.enrollments AS e (user_id,course_id,status,activation_date,expiry_date,promo_access)
-+  VALUES (sale.user_id,sale.course_id,'active',p_paid_at,access_until,false)
++  VALUES (sale.user_id,sale.course_id,'active',p_paid_at,NULL,false)
 +  ON CONFLICT (user_id,course_id) DO UPDATE
 +    SET status='active',
 +        activation_date=CASE WHEN e.status='active' AND (e.expiry_date IS NULL OR e.expiry_date>p_paid_at)
 +                             THEN e.activation_date ELSE EXCLUDED.activation_date END,
-+        expiry_date=CASE WHEN e.status='active' AND e.expiry_date IS NULL THEN NULL
-+                         ELSE greatest(e.expiry_date,EXCLUDED.expiry_date) END;
++        expiry_date=NULL;
 +  UPDATE public.mca_checkout_orders SET status='paid',payment_intent=p_payment_intent,
 +    paid_at=p_paid_at,updated_at=now() WHERE id=sale.id;
 +END $$;
 +
-+REVOKE ALL ON FUNCTION public.mca_prepare_checkout(uuid,uuid,boolean,integer),
++REVOKE ALL ON FUNCTION public.mca_prepare_checkout(uuid,uuid,boolean),
 +  public.mca_bind_checkout(uuid,text), public.mca_expire_checkout(uuid,text),
 +  public.mca_apply_checkout_event(uuid,uuid,uuid,text,boolean,text,text,integer,text,timestamptz)
 +  FROM PUBLIC,anon,authenticated,service_role;
-+GRANT EXECUTE ON FUNCTION public.mca_prepare_checkout(uuid,uuid,boolean,integer),
++GRANT EXECUTE ON FUNCTION public.mca_prepare_checkout(uuid,uuid,boolean),
 +  public.mca_bind_checkout(uuid,text), public.mca_expire_checkout(uuid,text),
 +  public.mca_apply_checkout_event(uuid,uuid,uuid,text,boolean,text,text,integer,text,timestamptz)
 +  TO service_role;
@@ -793,10 +851,10 @@ index 0000000000000000000000000000000000000000..fb9508486adfd43917693c5aa3ee438c
 +COMMIT;
 diff --git a/tests/mca-checkout-db.test.mjs b/tests/mca-checkout-db.test.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..7d89bad6f0c2cf648e7492808f0773ec0be2d5ca
+index 0000000000000000000000000000000000000000..7da46f63bb40504e51ccdf89479d12a180847704
 --- /dev/null
 +++ b/tests/mca-checkout-db.test.mjs
-@@ -0,0 +1,161 @@
+@@ -0,0 +1,164 @@
 +import test from 'node:test';
 +import assert from 'node:assert/strict';
 +import { readFile } from 'node:fs/promises';
@@ -827,9 +885,9 @@ index 0000000000000000000000000000000000000000..7d89bad6f0c2cf648e7492808f0773ec
 + return db;
 +}
 +
-+test('PostgreSQL guards the EUR 120 course order and atomically grants access once',async t=>{
++test('PostgreSQL guards the EUR 120 course order and atomically grants lifetime access once',async t=>{
 + const db=await database(t);
-+ const prepare=async(course=basic)=>(await db.query('select mca_prepare_checkout($1,$2,true,90) as sale',[user,course])).rows[0].sale;
++ const prepare=async(course=basic)=>(await db.query('select mca_prepare_checkout($1,$2,true) as sale',[user,course])).rows[0].sale;
 + const first=await prepare(),other=await prepare(reno);
 + assert.equal((await prepare()).order_id,first.order_id);
 + assert.notEqual(other.order_id,first.order_id);
@@ -853,9 +911,10 @@ index 0000000000000000000000000000000000000000..7d89bad6f0c2cf648e7492808f0773ec
 + const enrollment=(await db.query('select * from enrollments')).rows[0];
 + assert.equal(enrollment.course_id,basic);
 + assert.equal(enrollment.user_id,user);
-+ assert.equal(new Date(enrollment.expiry_date)-new Date(enrollment.activation_date),90*86400000);
++ assert.equal(enrollment.expiry_date,null);
++ assert.equal(new Date(enrollment.activation_date).toISOString(),grantAt);
++ assert.equal(enrollment.status,'active');
 + assert.equal((await prepare()).status,'already_enrolled');
-+ await db.query('UPDATE enrollments SET expiry_date=NULL WHERE id=$1',[enrollment.id]); // completed final exam
 + await event('paid');
 + await event('expired');
 + await assert.rejects(event('paid',12000,basic,'pi_another'),/payment_conflict/);
@@ -883,7 +942,7 @@ index 0000000000000000000000000000000000000000..7d89bad6f0c2cf648e7492808f0773ec
 +  const env={
 +    STRIPE_SECRET_KEY:'sk_test_fixture',STRIPE_WEBHOOK_SECRET:'whsec_fixture',
 +    STRIPE_PRICE_BASIC:'price_basic',STRIPE_PRICE_RENOVATION:'price_renovation',
-+    MCA_CHECKOUT_ORIGIN:origin,MCA_PAID_ACCESS_DAYS:'90',
++    MCA_CHECKOUT_ORIGIN:origin,
 +    SUPABASE_URL:api,SUPABASE_PUBLISHABLE_KEY:'fixture-public',SUPABASE_SERVICE_ROLE_KEY:'fixture-service',
 +  };
 +  const saved=Object.fromEntries(Object.keys(env).map(key=>[key,process.env[key]]));
@@ -892,7 +951,7 @@ index 0000000000000000000000000000000000000000..7d89bad6f0c2cf648e7492808f0773ec
 +    if(value===undefined) delete process.env[key]; else process.env[key]=value;
 +  }});
 +  const sqlRpc={
-+    mca_prepare_checkout:['p_user_id','p_course_id','p_live','p_access_days'],
++    mca_prepare_checkout:['p_user_id','p_course_id','p_live'],
 +    mca_bind_checkout:['p_order_id','p_session_id'],
 +    mca_apply_checkout_event:['p_order_id','p_user_id','p_course_id','p_session_id','p_live','p_state','p_payment_intent','p_amount','p_currency','p_paid_at'],
 +  };
@@ -910,6 +969,7 @@ index 0000000000000000000000000000000000000000..7d89bad6f0c2cf648e7492808f0773ec
 +      assert.ok(fields);
 +      assert.equal(headers.get('authorization'),'Bearer fixture-service');
 +      const args=JSON.parse(init.body);
++      assert.deepEqual(Object.keys(args).sort(),[...fields].sort());
 +      const {rows}=await db.query('select '+rpc+'('+fields.map((_,i)=>'$'+(i+1)).join(',')+') as result',fields.map(k=>args[k]));
 +      return Response.json(rows[0].result??null);
 +    }
@@ -955,12 +1015,13 @@ index 0000000000000000000000000000000000000000..7d89bad6f0c2cf648e7492808f0773ec
 +  assert.deepEqual((await db.query('select user_id,course_id from enrollments')).rows,[]);
 +  assert.equal((await send('checkout.session.async_payment_succeeded',true)).status,200);
 +  assert.equal((await send('checkout.session.async_payment_succeeded',true)).status,200);
-+  assert.deepEqual((await db.query('select user_id,course_id from enrollments')).rows,[{user_id:user,course_id:basic}]);
++  assert.deepEqual((await db.query('select user_id,course_id,status,expiry_date from enrollments')).rows,
++    [{user_id:user,course_id:basic,status:'active',expiry_date:null}]);
 +  assert.deepEqual(await start(),{status:'already_enrolled'});
 +});
 diff --git a/tests/mca-checkout.test.mjs b/tests/mca-checkout.test.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..df5a73619b48b233b0c5bc45c8f2a09a409776df
+index 0000000000000000000000000000000000000000..48968de08d9dd956d631c1d1be00a7b89d949f5f
 --- /dev/null
 +++ b/tests/mca-checkout.test.mjs
 @@ -0,0 +1,209 @@
@@ -989,7 +1050,7 @@ index 0000000000000000000000000000000000000000..df5a73619b48b233b0c5bc45c8f2a09a
 +  const env = {
 +    MCA_CHECKOUT_ORIGIN: origin, STRIPE_SECRET_KEY: "rk_test_localfixture",
 +    STRIPE_PRICE_BASIC: "price_basic120", STRIPE_PRICE_RENOVATION: "price_renovation120",
-+    STRIPE_WEBHOOK_SECRET: "whsec_localfixture", MCA_PAID_ACCESS_DAYS: "30",
++    STRIPE_WEBHOOK_SECRET: "whsec_localfixture",
 +    SUPABASE_URL: "https://backend.example.invalid/subpath/", SUPABASE_PUBLISHABLE_KEY: "test-public",
 +    SUPABASE_SERVICE_ROLE_KEY: "sb_secret_localfixture",
 +  };
@@ -1021,7 +1082,7 @@ index 0000000000000000000000000000000000000000..df5a73619b48b233b0c5bc45c8f2a09a
 +      const rpc = path.split("/").at(-1);
 +      const p = JSON.parse(init.body);
 +      if (rpc === "mca_prepare_checkout") {
-+        assert.deepEqual(p, { p_user_id: user, p_course_id: p.p_course_id, p_live: false, p_access_days: 30 });
++        assert.deepEqual(p, { p_user_id: user, p_course_id: p.p_course_id, p_live: false });
 +        const info = orders.get(p.p_course_id) ?? {
 +          status: "pending", order_id: order, expires_at: expiry, session_id: null, slug: "roof-work",
 +        };
@@ -1099,12 +1160,12 @@ index 0000000000000000000000000000000000000000..df5a73619b48b233b0c5bc45c8f2a09a
 +  assert.equal(calls.length, 1);
 +});
 +
-+test("refuses mismatched mode, missing webhook, undefined access term and reused price IDs", async t => {
++test("refuses mismatched mode, missing webhook and reused price IDs", async t => {
 +  const { calls } = fixture(t);
 +  for (const [key, value, sentOrigin] of [
 +    ["MCA_CHECKOUT_ORIGIN", "https://markacentrumacademy.eu", "https://markacentrumacademy.eu"],
 +    ["STRIPE_SECRET_KEY", "rk_live_localfixture", origin], ["STRIPE_WEBHOOK_SECRET", "", origin],
-+    ["MCA_PAID_ACCESS_DAYS", "", origin], ["STRIPE_PRICE_RENOVATION", "price_basic120", origin],
++    ["STRIPE_PRICE_RENOVATION", "price_basic120", origin],
 +  ]) {
 +    const before = process.env[key]; process.env[key] = value;
 +    assert.equal((await checkout(request(basic, { headers: { Origin: sentOrigin } }))).status, 503);

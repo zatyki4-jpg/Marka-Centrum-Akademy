@@ -20,9 +20,8 @@ HOST = Path("/srv/marka-course-academy")
 PRIVATE = HOST / "private"
 DEST = PRIVATE / "stripe-checkout.env"
 BACKEND = HOST / "backend-staging"
-DAYS = "MCA_PAID_ACCESS_DAYS"
 ROLE = "SUPABASE_SERVICE_ROLE_KEY"
-NAMES = ("STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", ROLE, DAYS)
+NAMES = ("STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", ROLE)
 ROLE_ALIASES = ("SERVICE_ROLE_KEY", "SUPABASE_SERVICE_KEY", ROLE)
 ASSIGN = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z_0-9]*)\s*=\s*(.*)$")
 
@@ -67,8 +66,6 @@ def valid_role(value):
 def validated(key, value):
     if key == ROLE:
         ok = valid_role(value)
-    elif key == DAYS:
-        ok = re.fullmatch(r"[1-9][0-9]{0,4}", value) and int(value) <= 36500
     else:
         pattern = r"(?:sk|rk)_live_[A-Za-z0-9]{16,}" if key == "STRIPE_SECRET_KEY" else r"whsec_[A-Za-z0-9]{16,}"
         ok = re.fullmatch(pattern, value)
@@ -112,7 +109,7 @@ def secret_input(tty, prompt):
         return getpass.getpass(prompt, stream=tty).strip()
 
 
-def configure(tty, days):
+def configure(tty):
     info = None
     raw = ""
     try:
@@ -127,16 +124,7 @@ def configure(tty, days):
     old = {key: validated(key, value) for key, (_, value) in fields.items() if value}
     role = backend_role()
     require(old.get(ROLE, role) == role, "Existing payment role differs from the Academy backend; original file retained")
-    if days is not None:
-        validated(DAYS, days)
-        require(old.get(DAYS, days) == days, "Existing access period differs; original file retained")
     new = {ROLE: role}
-    if DAYS not in old:
-        if days is None:
-            tty.write("Liczba dni dostępu do kursu przed zdaniem egzaminu (zatwierdzona przez Academy): ")
-            tty.flush()
-            days = tty.readline().strip()
-        new[DAYS] = validated(DAYS, days)
     for key, prompt in (("STRIPE_SECRET_KEY", "Klucz Stripe LIVE (sk_live_ lub rk_live_): "),
                         ("STRIPE_WEBHOOK_SECRET", "Sekret podpisu webhooka LIVE (whsec_): ")):
         if key not in old:
@@ -179,8 +167,7 @@ def configure(tty, days):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--access-days", help="Approved initial number of days of paid access")
-    args = parser.parse_args()
+    parser.parse_args()
     require(os.geteuid() == 0, "Use the root terminal on the Academy host")
     require(HOST.is_dir() and BACKEND.is_dir(), "Existing Academy backend is missing")
     os.umask(0o077)
@@ -193,7 +180,7 @@ def main():
         require(os.isatty(raw.fileno()), "A physical terminal or SSH TTY is required")
         with (PRIVATE / "checkout-release.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            configure(tty, args.access_days)
+            configure(tty)
 
 
 if __name__ == "__main__":

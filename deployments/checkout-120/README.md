@@ -7,6 +7,8 @@ This release overlays the separate, self-hosted Academy application on Hetzner. 
 | Monter bitumicznych pokryć dachowych | 120.00 | `price_1Uej4hIcl2W7iMTxaiHPUqGo` |
 | Monter bitumicznych pokryć dachowych – poziom 2: renowacja dachów płaskich | 120.00 | `price_1Uej5CIcl2W7iMTxLKxgp06s` |
 
+A confirmed purchase grants lifetime access to that course, its materials and its exam. Course completion requirements and certificate conditions still apply.
+
 ## Runtime settings
 
 The active Compose application provides `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. The release override supplies the two production price IDs. Store these additional settings on the host in an owner-only env file outside the releases directory.
@@ -16,7 +18,6 @@ The active Compose application provides `SUPABASE_URL` and `SUPABASE_PUBLISHABLE
 | `STRIPE_SECRET_KEY` | Live Stripe secret or restricted key for creating and reading Checkout Sessions |
 | `STRIPE_WEBHOOK_SECRET` | Signing secret for this exact live destination |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key for the active self-hosted Academy Supabase instance |
-| `MCA_PAID_ACCESS_DAYS` | Initial course-access period in days, according to the Academy sales terms |
 
 To prepare the runtime file, open a private root terminal on the existing Academy host, enter this release directory and run:
 
@@ -24,7 +25,7 @@ To prepare the runtime file, open a private root terminal on the existing Academ
 python3 configure.py
 ```
 
-Enter the approved access period, then the Stripe live API key and the live webhook destination's signing secret at the hidden prompts. `--access-days` may be used for an already agreed period. Type or paste secrets directly into the host terminal. Terminal recording or screen sharing that captures keyboard input should be disabled. The bootstrap obtains the service role locally from the running Academy backend configuration and writes `/srv/marka-course-academy/private/stripe-checkout.env` atomically with mode 0600. On subsequent runs it keeps existing values, other settings and comments, and fills only missing entries. An invalid existing value or a mismatch stops the operation before writing. Continue with the separate deploy command after setup completes.
+Enter the Stripe live API key, then the live webhook destination's signing secret at the hidden prompts. Type or paste secrets directly into the host terminal. Terminal recording or screen sharing that captures keyboard input should be disabled. The bootstrap obtains the service role locally from the running Academy backend configuration and writes `/srv/marka-course-academy/private/stripe-checkout.env` atomically with mode 0600. On subsequent runs it keeps existing values, other settings and comments, and fills only missing entries. An invalid existing value or a mismatch stops the operation before writing. Continue with the separate deploy command after setup completes.
 
 The public web checkout origin is `https://markacentrumacademy.eu`. Register the Stripe destination `https://markacentrumacademy.eu/api/stripe/webhook` for the account's own `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, and `checkout.session.expired` events. Store the destination signing secret directly on the host. A free-standing payment link cannot supply an authenticated order binding.
 
@@ -53,4 +54,4 @@ The payment schema and recorded payment history remain available after applicati
 
 ## Acceptance
 
-Test with separate Stripe test-mode and Supabase staging configuration. Open each course as a signed-in test student, verify the checkout shows EUR 120 once, and complete using Stripe test payment details. Inspect the paid order, its matching enrollment, and the student's course panel. Repeat webhook delivery to confirm it produces one enrollment. An unpaid or canceled checkout must leave the course locked. Confirm that an authenticated existing enrollment and protected promotional access continue to work. Publishing the patch, building the image, and successful unit tests alone do not establish that a live charge and live course access have been observed.
+Test with separate Stripe test-mode and Supabase staging configuration. Open each course as a signed-in test student, verify the checkout shows EUR 120 once, and complete using Stripe test payment details. Inspect the paid order, its matching enrollment with a null expiry, and the student's course panel. Repeat webhook delivery to confirm it produces one enrollment. An unpaid or canceled checkout must leave the course locked. Confirm that an authenticated existing enrollment and protected promotional access continue to work. Publishing the patch, building the image, and successful unit tests alone do not establish that a live charge and live course access have been observed.
