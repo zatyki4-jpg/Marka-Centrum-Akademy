@@ -18,6 +18,14 @@ The active Compose application provides `SUPABASE_URL` and `SUPABASE_PUBLISHABLE
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key for the active self-hosted Academy Supabase instance |
 | `MCA_PAID_ACCESS_DAYS` | Initial course-access period in days, according to the Academy sales terms |
 
+To prepare the runtime file, open a private root terminal on the existing Academy host, enter this release directory and run:
+
+```sh
+python3 configure.py
+```
+
+Enter the approved access period, then the Stripe live API key and the live webhook destination's signing secret at the hidden prompts. `--access-days` may be used for an already agreed period. Type or paste secrets directly into the host terminal. Terminal recording or screen sharing that captures keyboard input should be disabled. The bootstrap obtains the service role locally from the running Academy backend configuration and writes `/srv/marka-course-academy/private/stripe-checkout.env` atomically with mode 0600. On subsequent runs it keeps existing values, other settings and comments, and fills only missing entries. An invalid existing value or a mismatch stops the operation before writing. Continue with the separate deploy command after setup completes.
+
 The public web checkout origin is `https://markacentrumacademy.eu`. Register the Stripe destination `https://markacentrumacademy.eu/api/stripe/webhook` for the account's own `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, and `checkout.session.expired` events. Store the destination signing secret directly on the host. A free-standing payment link cannot supply an authenticated order binding.
 
 ## Preflight and release
