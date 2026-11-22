@@ -1,0 +1,1305 @@
+diff --git a/src/components/CourseCheckout.tsx b/src/components/CourseCheckout.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..53d282d1366d5b9c2216243e57b025a93767b172
+--- /dev/null
++++ b/src/components/CourseCheckout.tsx
+@@ -0,0 +1,87 @@
++import { useEffect, useState } from "react";
++import { useQuery } from "@tanstack/react-query";
++import { Link } from "@tanstack/react-router";
++import { Button } from "@/components/ui/button";
++import { supabase } from "@/integrations/supabase/client";
++import { useAuth } from "@/lib/auth";
++import { accessStatus } from "@/lib/format";
++import { useI18n } from "@/lib/i18n";
++import { isPlayPurchaseSurface } from "@/lib/mca-purchase-surface";
++
++const copy = {
++  pl: { retry: "Sprawdź płatność lub spróbuj ponownie", error: "Nie udało się otworzyć płatności. Spróbuj ponownie.", pending: "Czekamy na potwierdzenie od Stripe. Po potwierdzeniu kurs pojawi się w panelu kursanta." },
++  nl: { retry: "Betaling controleren of opnieuw proberen", error: "De betaalpagina kon niet worden geopend. Probeer het opnieuw.", pending: "We wachten op de bevestiging van Stripe. Daarna verschijnt de cursus in je cursistenportaal." },
++  fr: { retry: "Vérifier le paiement ou réessayer", error: "Impossible d’ouvrir la page de paiement. Réessayez.", pending: "Nous attendons la confirmation de Stripe. Le cours apparaîtra ensuite dans votre espace personnel." },
++  en: { retry: "Check payment or try again", error: "The payment page could not be opened. Please try again.", pending: "Waiting for confirmation from Stripe. The course will appear in your dashboard after confirmation." },
++  de: { retry: "Zahlung prüfen oder erneut versuchen", error: "Die Zahlungsseite konnte nicht geöffnet werden. Bitte versuchen Sie es erneut.", pending: "Wir warten auf die Bestätigung von Stripe. Anschließend erscheint der Kurs in Ihrem Kursbereich." },
++};
++
++export function CourseCheckout({ courseId, slug }: { courseId: string; slug: string }) {
++  const { user, loading } = useAuth();
++  const { t, lang } = useI18n();
++  const [busy, setBusy] = useState(false);
++  const [pending, setPending] = useState(false);
++  const [failed, setFailed] = useState(false);
++  const [web, setWeb] = useState(false);
++  useEffect(() => {
++    setWeb(!isPlayPurchaseSurface());
++    setPending(new URLSearchParams(location.search).get("mca_payment") === "return");
++    setFailed(false);
++  }, [slug]);
++
++  const enrollment = useQuery({
++    queryKey: ["checkout-course-access", user?.id, courseId],
++    enabled: Boolean(user),
++    queryFn: async () => {
++      const { data, error } = await supabase.from("enrollments")
++        .select("status, activation_date, expiry_date, promo_access").eq("user_id", user!.id)
++        .eq("course_id", courseId).maybeSingle();
++      if (error) throw error;
++      return accessStatus(data) === "active";
++    },
++    refetchInterval: (query) => pending && !query.state.data && query.state.dataUpdateCount < 20 ? 3000 : false,
++  });
++  const next = "/kurs/" + encodeURIComponent(slug);
++  const signIn = () => location.assign("/auth?" + new URLSearchParams({ tryb: "logowanie", next }));
++  async function start() {
++    if (!web || busy) return;
++    if (!user) return signIn();
++    setFailed(false);
++    setBusy(true);
++    try {
++      const { data } = await supabase.auth.getSession();
++      if (!data.session) return signIn();
++      const response = await fetch("/api/academy/checkout", {
++        method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + data.session.access_token },
++        body: JSON.stringify({ courseId }),
++      });
++      if (response.status === 401) return signIn();
++      if (!response.ok) throw new Error();
++      const result = await response.json();
++      if (result.status === "already_enrolled") { location.assign("/panel/kurs/" + encodeURIComponent(slug)); return; }
++      if (result.status === "processing") { setPending(true); return; }
++      if (result.status !== "open" || typeof result.url !== "string" || new URL(result.url).origin !== "https://checkout.stripe.com") throw new Error();
++      location.assign(result.url);
++    } catch {
++      setFailed(true);
++    } finally {
++      setBusy(false);
++    }
++  }
++  if (enrollment.data)
++    return <Button size="lg" className="w-full" asChild><Link to="/panel/kurs/$slug" params={{ slug }}>{t("common.open")}</Link></Button>;
++  if (!web) return null;
++  if (pending && user)
++    return (
++      <div className="space-y-2">
++        <p role="status">{copy[lang].pending}</p>
++        <Button disabled={busy || loading} onClick={start}>{copy[lang].retry}</Button>
++        <Button asChild variant="outline"><Link to="/panel">{t("nav.panel")}</Link></Button>
++        {failed && <p role="alert" className="text-sm text-destructive">{copy[lang].error}</p>}
++      </div>
++    );
++  return <>
++    <Button size="lg" className="w-full" disabled={busy || loading} onClick={start}>{t("common.buy")}</Button>
++    {failed && <p role="alert" className="text-sm text-destructive">{copy[lang].error}</p>}
++  </>;
++}
+diff --git a/src/lib/i18n.tsx b/src/lib/i18n.tsx
+index 49c1c9b221af28655acebc0c436be28ee6b5c56c..1c934e0f167c02daaad33f679b2d8e7895f96bd8 100644
+--- a/src/lib/i18n.tsx
++++ b/src/lib/i18n.tsx
+@@ -68,8 +68,8 @@ const pl: Dict = {
+   "included.i1": "pełny kurs — 10 kompletnych modułów od podstaw po zaawansowane detale",
+   "included.i2": "quizy po każdym etapie oraz egzamin końcowy",
+   "included.i3": "certyfikat PDF z unikalnym numerem i kodem QR",
+-  "included.i4": "dostęp online 24/7 przez cały okres aktywnego dostępu do kursu",
+-  "included.i5": "dostęp bezterminowy odblokowany po zdaniu egzaminu końcowego",
++  "included.i4": "bezterminowy dostęp od zakupu. Uczysz się we własnym tempie i samodzielnie wybierasz termin egzaminu",
++  "included.i5": "wszystkie materiały kursu pozostają dostępne online 24/7 także po egzaminie",
+   "course.vatNote": "Informacja o VAT jest pokazywana przed płatnością.",
+   "course.translationIncomplete":
+     "Tłumaczenie tej treści nie jest jeszcze kompletne w wybranym języku.",
+@@ -216,8 +216,8 @@ const nl: Dict = {
+   "included.i1": "volledige cursus — 10 complete modules, van de basis tot geavanceerde dakdetails",
+   "included.i2": "quizzen na elke module en het eindexamen",
+   "included.i3": "PDF-certificaat met uniek nummer en QR-code",
+-  "included.i4": "24/7 online toegang zolang je toegang tot de cursus actief is",
+-  "included.i5": "levenslange toegang wordt vrijgegeven na het slagen voor het eindexamen",
++  "included.i4": "onbeperkte toegang vanaf je aankoop. Je leert op je eigen tempo en kiest zelf wanneer je het examen aflegt",
++  "included.i5": "ook na het examen blijft al het cursusmateriaal de klok rond beschikbaar",
+   "course.vatNote": "De btw-informatie wordt vóór de betaling getoond.",
+   "course.translationIncomplete":
+     "De vertaling van deze inhoud is nog niet volledig in de gekozen taal.",
+@@ -364,8 +364,8 @@ const en: Dict = {
+   "included.i1": "10 complete training modules — from fundamentals to advanced roofing details",
+   "included.i2": "quizzes after every module and the final exam",
+   "included.i3": "PDF certificate with a unique number and QR code",
+-  "included.i4": "24/7 online access for as long as your course access is active",
+-  "included.i5": "lifetime access is unlocked after passing the final exam",
++  "included.i4": "lifetime access from purchase. Study at your own pace and take the exam whenever you are ready",
++  "included.i5": "all course materials remain available online 24/7 after the exam",
+   "course.vatNote": "VAT details are shown before payment.",
+   "course.translationIncomplete":
+     "The translation of this content is not complete yet in the selected language.",
+@@ -994,8 +994,8 @@ const fr: Dict = {
+   "included.i1": "formation complète — 10 modules complets, des bases aux détails avancés",
+   "included.i2": "quiz après chaque module et examen final",
+   "included.i3": "certificat PDF avec numéro unique et code QR",
+-  "included.i4": "accès en ligne 24/7 pendant toute la durée de votre accès à la formation",
+-  "included.i5": "l'accès illimité est débloqué après la réussite de l'examen final",
++  "included.i4": "accès sans limite de durée dès l’achat. Étudiez à votre rythme et passez l’examen quand vous le souhaitez",
++  "included.i5": "tous les supports de formation restent accessibles en ligne 24 h/24, même après l’examen",
+   "course.vatNote": "Les informations de TVA sont affichées avant le paiement.",
+   "course.translationIncomplete":
+     "La traduction de ce contenu n'est pas encore complète dans la langue choisie.",
+diff --git a/src/lib/locales/de.json b/src/lib/locales/de.json
+index 704d14a8a70b304457cc864e5ed87399a818cf86..564644b5ab52e152bf644bcfabce2fc3d5ed65f5 100644
+--- a/src/lib/locales/de.json
++++ b/src/lib/locales/de.json
+@@ -189,8 +189,8 @@
+   "included.i1": "vollständiger Kurs — 10 komplette Module von den Grundlagen bis zu fortgeschrittenen Details",
+   "included.i2": "Quizze nach jeder Etappe sowie die Abschlussprüfung",
+   "included.i3": "PDF-Zertifikat mit eindeutiger Nummer und QR-Code",
+-  "included.i4": "Online-Zugang rund um die Uhr während der gesamten Dauer des aktiven Kurszugangs",
+-  "included.i5": "unbegrenzter Zugang wird nach Bestehen der Abschlussprüfung freigeschaltet",
++  "included.i4": "Unbefristeter Zugang ab dem Kauf. Sie lernen in Ihrem eigenen Tempo und entscheiden selbst, wann Sie die Prüfung ablegen",
++  "included.i5": "Alle Kursmaterialien bleiben auch nach der Prüfung rund um die Uhr online verfügbar",
+   "included.title": "Im Preis enthalten (einmalige Zahlung)",
+   "lesson.doneToast": "Lektion abgeschlossen!",
+   "lesson.downloadPdf": "PDF-Material herunterladen",
+diff --git a/src/lib/mca-checkout.server.ts b/src/lib/mca-checkout.server.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..3f1bc20c10a97469cb0bd248f726ac95544014a6
+--- /dev/null
++++ b/src/lib/mca-checkout.server.ts
+@@ -0,0 +1,133 @@
++import { mcaRpc } from "./mca-rpc.server.ts";
++
++const basic = "11111111-1111-4111-8111-111111111111";
++const renovation = "f166433e-5157-4341-9a38-800c62795ebd";
++const canonicalOrigin = "https://markacentrumacademy.eu";
++
++interface Reservation {
++  status: "already_enrolled" | "pending" | "processing";
++  order_id: string;
++  session_id: string | null;
++  expires_at: number;
++  slug: string;
++}
++interface StripeSession {
++  id: string;
++  url: string | null;
++  mode: string;
++  livemode: boolean;
++  status: "open" | "complete" | "expired";
++  client_reference_id: string;
++  metadata: Record<string, string>;
++  amount_total: number;
++  currency: string;
++}
++
++async function readCourseId(request: Request): Promise<string | null> {
++  if (!request.body || Number(request.headers.get("Content-Length")) > 2048) return null;
++  let size = 0;
++  const stream = request.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
++    transform(chunk, controller) {
++      size += chunk.byteLength;
++      if (size > 2048) throw new Error("Request too large");
++      controller.enqueue(chunk);
++    },
++  }));
++  const body = await new Response(stream).json().catch(() => null);
++  return body?.courseId === basic || body?.courseId === renovation ? body.courseId : null;
++}
++
++async function authenticatedUser(request: Request): Promise<string | null> {
++  const token = request.headers.get("authorization");
++  if (!token || !/^Bearer [^\s]+$/.test(token)) return null;
++  const url = process.env["SUPABASE_URL"];
++  const key = process.env["SUPABASE_PUBLISHABLE_KEY"];
++  if (!url || !key) throw new Error("Auth unavailable");
++  const response = await fetch(url.replace(/\/+$/, "") + "/auth/v1/user", {
++    headers: { apikey: key, Authorization: token }, redirect: "error", signal: AbortSignal.timeout(10000),
++  });
++  if (response.status === 401 || response.status === 403) return null;
++  if (!response.ok) throw new Error("Auth unavailable");
++  const user = await response.json();
++  return typeof user.id === "string" ? user.id : null;
++}
++
++async function stripeSession(key: string, sessionId: string | null, form?: URLSearchParams, orderId?: string) {
++  const headers: Record<string, string> = { Authorization: `Bearer ${key}` };
++  let path = "/v1/checkout/sessions";
++  if (sessionId) path += "/" + encodeURIComponent(sessionId);
++  if (orderId) headers["Idempotency-Key"] = `mca-course-v1-${orderId}`;
++  const response = await fetch(new URL(path, "https://api.stripe.com"), {
++    method: form ? "POST" : "GET", headers, ...(form ? { body: form } : {}),
++    redirect: "error", signal: AbortSignal.timeout(15000),
++  });
++  if (!response.ok) throw new Error(`Stripe checkout: ${response.status}`);
++  return await response.json() as StripeSession;
++}
++
++const reply = (value: object, status = 200) =>
++  Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
++
++export async function checkout(request: Request): Promise<Response> {
++  try {
++    const origin = process.env["MCA_CHECKOUT_ORIGIN"] ?? canonicalOrigin;
++    const reqOrigin = request.headers.get("Origin");
++    if (!reqOrigin || reqOrigin !== origin) return reply({ error: "forbidden" }, 403);
++    if (!request.headers.get("content-type")?.startsWith("application/json")) return reply({ error: "invalid_input" }, 415);
++    const courseId = await readCourseId(request);
++    if (!courseId) return reply({ error: "invalid_course" }, 400);
++    const userId = await authenticatedUser(request);
++    if (!userId) return reply({ error: "sign_in_required" }, 401);
++
++    const key = process.env["STRIPE_SECRET_KEY"] ?? "";
++    const price = courseId === basic ? process.env["STRIPE_PRICE_BASIC"] : process.env["STRIPE_PRICE_RENOVATION"];
++    const live = /^(sk|rk)_live_/.test(key);
++    if (!/^whsec_\S+$/.test(process.env["STRIPE_WEBHOOK_SECRET"] ?? "") || !/^(sk|rk)_(test|live)_\S+$/.test(key) || !price || !/^price_[A-Za-z0-9]+$/.test(price) ||
++        process.env["STRIPE_PRICE_BASIC"] === process.env["STRIPE_PRICE_RENOVATION"] ||
++        (live && origin !== canonicalOrigin) || (!live && origin === canonicalOrigin)) {
++      return reply({ error: "checkout_unavailable" }, 503);
++    }
++
++    // A rotation after a Stripe-confirmed expiration needs exactly one new reservation.
++    for (let attempt = 0; attempt < 2; attempt++) {
++      const order: Reservation = await mcaRpc<Reservation>("mca_prepare_checkout", {
++        p_user_id: userId, p_course_id: courseId, p_live: live,
++      });
++      if (order.status === "already_enrolled" || order.status === "processing") return reply({ status: order.status });
++      if (order.status !== "pending" || !order.order_id || !order.slug) throw new Error("Invalid order");
++      let session: StripeSession;
++      if (order.session_id) {
++        session = await stripeSession(key, order.session_id);
++      } else {
++        const courseUrl = `${origin}/kurs/${encodeURIComponent(order.slug)}`;
++        const form = new URLSearchParams({
++          mode: "payment", "line_items[0][quantity]": "1", "line_items[0][price]": price,
++          "adaptive_pricing[enabled]": "false", client_reference_id: order.order_id,
++          "metadata[integration]": "mca_courses_v1", "metadata[mca_order_id]": order.order_id,
++          "metadata[user_id]": userId, "metadata[course_id]": courseId,
++          success_url: courseUrl + "?mca_payment=return", cancel_url: courseUrl,
++          expires_at: String(order.expires_at),
++        });
++        session = await stripeSession(key, null, form, order.order_id);
++      }
++      if (!/^cs_/.test(session.id) || session.mode !== "payment" || session.livemode !== live ||
++          session.client_reference_id !== order.order_id || session.metadata?.["mca_order_id"] !== order.order_id ||
++          session.metadata?.["integration"] !== "mca_courses_v1" ||
++          session.metadata?.["course_id"] !== courseId || session.metadata?.["user_id"] !== userId) throw new Error("Checkout binding mismatch");
++      if (session.status !== "expired" && (session.amount_total !== 12000 || session.currency !== "eur")) throw new Error("Checkout price mismatch");
++      if (!order.session_id) await mcaRpc("mca_bind_checkout", { p_order_id: order.order_id, p_session_id: session.id });
++      if (session.status === "expired") {
++        await mcaRpc("mca_expire_checkout", {p_order_id: order.order_id, p_session_id: session.id});
++        continue;
++      }
++      if (session.status === "complete") return reply({ status: "processing" });
++      if (session.status !== "open" || !session.url || new URL(session.url).origin !== "https://checkout.stripe.com") throw new Error("Invalid checkout URL");
++      return reply({ status: "open", url: session.url });
++    }
++  } catch (error) {
++    // Never log a Stripe response body, token, supplied request body, or private checkout URL.
++    const message = error instanceof Error ? error.message : "";
++    console.error("Academy checkout failed", /^(Academy RPC mca_[a-z_]+: \d+|Stripe checkout: \d+)$/.test(message) ? message : "request unavailable");
++  }
++  return reply({ error: "checkout_unavailable" }, 503);
++}
+diff --git a/src/lib/mca-purchase-surface.ts b/src/lib/mca-purchase-surface.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..6b01e6a76a025ae9b06a622040d512c53494f876
+--- /dev/null
++++ b/src/lib/mca-purchase-surface.ts
+@@ -0,0 +1,14 @@
++// TWA starts at the same URL as the public website. Keep the launch context
++// for same-tab navigation, including Supabase's full-page sign-in return.
++export function isPlayPurchaseSurface(): boolean {
++  if (typeof window === "undefined") return true;
++  const fromPlay = /^android-app:\/\/eu\.markacentrumacademy\.app(?:\/|$)/.test(document.referrer);
++  const standaloneAndroid = /Android/i.test(navigator.userAgent) &&
++    (window.matchMedia("(display-mode: standalone)").matches || window.matchMedia("(display-mode: fullscreen)").matches);
++  try {
++    if (fromPlay || standaloneAndroid) sessionStorage.setItem("mca-play-session", "1");
++    return fromPlay || standaloneAndroid || sessionStorage.getItem("mca-play-session") === "1";
++  } catch {
++    return fromPlay || standaloneAndroid;
++  }
++}
+diff --git a/src/lib/mca-rpc.server.ts b/src/lib/mca-rpc.server.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e108f3b7bb48880658c1b20797083d0c25183ed4
+--- /dev/null
++++ b/src/lib/mca-rpc.server.ts
+@@ -0,0 +1,14 @@
++/** Private, service-role-only calls. Never import into a browser module. */
++export async function mcaRpc<T>(name: string, params: Record<string, unknown>): Promise<T> {
++  const url = process.env["SUPABASE_URL"];
++  const key = process.env["SUPABASE_SERVICE_ROLE_KEY"];
++  if (!url || !key || !/^mca_[a-z_]+$/.test(name)) throw new Error("Academy RPC configuration unavailable");
++  const headers: Record<string, string> = { apikey: key, "Content-Type": "application/json" };
++  if (!key.startsWith("sb_secret_")) headers["Authorization"] = `Bearer ${key}`;
++  const response = await fetch(url.replace(/\/+$/, "") + "/rest/v1/rpc/" + name, {
++    method: "POST", headers, body: JSON.stringify(params), redirect: "error", signal: AbortSignal.timeout(10000),
++  });
++  if (!response.ok) throw new Error(`Academy RPC ${name}: ${response.status}`);
++  const body = await response.text();
++  return (body ? JSON.parse(body) : null) as T;
++}
+diff --git a/src/lib/mca-webhook.server.ts b/src/lib/mca-webhook.server.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..5b123e0cfe909f9f5c6922778cdc6f95b6a0a9a4
+--- /dev/null
++++ b/src/lib/mca-webhook.server.ts
+@@ -0,0 +1,146 @@
++type PaymentEvent = {
++  p_order_id: string;
++  p_course_id: string;
++  p_user_id: string;
++  p_session_id: string;
++  p_live: boolean;
++  p_state: "expired" | "failed" | "processing" | "paid";
++  p_payment_intent: string | null;
++  p_amount: number | null;
++  p_currency: string | null;
++  p_paid_at: string | null;
++};
++
++type WebhookConfig = {
++  secret: string;
++  stripeKey: string;
++  applyPayment: (event: PaymentEvent) => Promise<unknown>;
++};
++
++const encoder = new TextEncoder();
++const limit = 1024 * 1024;
++const uuid = /^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i;
++
++function response(status: number, message: string) {
++  return Response.json({ ok: status === 200, message }, { status, headers: { "Cache-Control": "no-store" } });
++}
++
++async function readPayload(request: Request) {
++  if (Number(request.headers.get("content-length")) > limit) return null;
++  const reader = request.body?.getReader();
++  if (!reader) return null;
++  const chunks: Uint8Array[] = [];
++  let size = 0;
++  try {
++    for (;;) {
++      const { done, value } = await reader.read();
++      if (done) break;
++      size += value.length;
++      if (size > limit) {
++        await reader.cancel();
++        return null;
++      }
++      chunks.push(value);
++    }
++  } finally {
++    reader.releaseLock();
++  }
++  const body = new Uint8Array(size);
++  let offset = 0;
++  for (const chunk of chunks) {
++    body.set(chunk, offset);
++    offset += chunk.length;
++  }
++  return body;
++}
++
++async function verifySignature(raw: Uint8Array, signature: string, secret: string) {
++  const fields = signature.split(",").map(field => field.trim().split("="));
++  const times = fields.filter(([name]) => name === "t");
++  const time = times[0]?.[1];
++  if (times.length !== 1 || !time || !/^\d{1,12}$/.test(time)) return false;
++  if (Math.abs(Math.floor(Date.now() / 1000) - Number(time)) > 300) return false;
++  const values = fields.filter(([name, value]) => name === "v1" && value && /^[a-f\d]{64}$/i.test(value));
++  const prefix = encoder.encode(time + ".");
++  const signed = new Uint8Array(prefix.length + raw.length);
++  signed.set(prefix);
++  signed.set(raw, prefix.length);
++  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
++  for (const [, hex] of values) {
++    if (!hex) continue;
++    const bytes = Uint8Array.from(hex.match(/../g)!, pair => Number.parseInt(pair, 16));
++    if (await crypto.subtle.verify("HMAC", key, bytes, signed)) return true;
++  }
++  return false;
++}
++
++function record(value: unknown): Record<string, unknown> {
++  return typeof value === "object" && value !== null && !Array.isArray(value)
++    ? value as Record<string, unknown> : {};
++}
++
++export async function handleMcaWebhook(request: Request, config: WebhookConfig): Promise<Response> {
++  if (!/^whsec_\S+$/.test(config.secret) || !/^(?:sk|rk)_(?:test|live)_\S+$/.test(config.stripeKey)) {
++    return response(503, "not_configured");
++  }
++  const signature = request.headers.get("stripe-signature");
++  if (!signature || signature.length > 2048) return response(400, "invalid_signature");
++  const payload = await readPayload(request);
++  if (!payload) return response(413, "invalid_payload_size");
++  if (!await verifySignature(payload, signature, config.secret)) return response(400, "invalid_signature");
++
++  let event;
++  try {
++    event = record(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(payload)));
++  } catch {
++    return response(400, "invalid_payload");
++  }
++  const type = event["type"];
++  if (type !== "checkout.session.completed" && type !== "checkout.session.async_payment_succeeded"
++    && type !== "checkout.session.async_payment_failed" && type !== "checkout.session.expired") {
++    return response(200, "ignored");
++  }
++  const session = record(record(event["data"])["object"]);
++  const metadata = record(session["metadata"]);
++  if (metadata["integration"] !== "mca_courses_v1") return response(200, "ignored");
++  const live = /^(?:sk|rk)_live_/.test(config.stripeKey);
++  if (event["livemode"] !== live || session["livemode"] !== live || session["mode"] !== "payment" || session["object"] !== "checkout.session") {
++    return response(400, "mode_mismatch");
++  }
++  const orderId = metadata["mca_order_id"], userId = metadata["user_id"], courseId = metadata["course_id"];
++  if (typeof orderId !== "string" || !uuid.test(orderId) || session["client_reference_id"] !== orderId
++    || typeof userId !== "string" || !uuid.test(userId) || typeof courseId !== "string" || !uuid.test(courseId)
++    || typeof session["id"] !== "string" || !/^cs_(?:(?:live|test)_)?[A-Za-z0-9]+$/.test(session["id"])) {
++    return response(400, "invalid_order");
++  }
++  let state: PaymentEvent["p_state"];
++  if (type === "checkout.session.expired") {
++    if (session["status"] !== "expired") return response(400, "invalid_session_status");
++    state = "expired";
++  } else {
++    if (session["status"] !== "complete") return response(400, "invalid_session_status");
++    if (type === "checkout.session.async_payment_failed") state = "failed";
++    else if (session["payment_status"] === "paid") state = "paid";
++    else if (type === "checkout.session.completed" && session["payment_status"] === "unpaid") state = "processing";
++    else return response(400, "invalid_payment_status");
++  }
++  const paid = state === "paid";
++  if (paid && (session["amount_total"] !== 12000 || session["currency"] !== "eur"
++    || typeof session["payment_intent"] !== "string" || !/^pi_[A-Za-z0-9]+$/.test(session["payment_intent"])
++    || typeof event["created"] !== "number" || !Number.isSafeInteger(event["created"]) || event["created"] < 1
++    || event["created"] > Math.floor(Date.now() / 1000) + 300)) return response(400, "payment_mismatch");
++
++  try {
++    await config.applyPayment({
++      p_order_id: orderId, p_user_id: userId, p_course_id: courseId, p_session_id: session["id"],
++      p_state: state, p_live: live, p_payment_intent: paid ? session["payment_intent"] as string : null,
++      p_currency: paid ? "eur" : null, p_amount: paid ? 12000 : null,
++      p_paid_at: paid ? new Date((event["created"] as number) * 1000).toISOString() : null,
++    });
++    return response(200, "accepted");
++  } catch {
++    // A transient database error must be retried by Stripe. Do not log personal data from events.
++    console.error("mca_stripe_fulfillment_failed", { orderId, type });
++    return response(503, "retry");
++  }
++}
+diff --git a/src/routeTree.gen.ts b/src/routeTree.gen.ts
+index 0ca8b915a8562f1e681274d50c8cc861d764bb56..15b490d74ac47930d5456dd7e67d471e872455b5 100644
+--- a/src/routeTree.gen.ts
++++ b/src/routeTree.gen.ts
+@@ -26,6 +26,8 @@ import { Route as LekcjaLessonIdRouteImport } from './routes/lekcja.$lessonId'
+ import { Route as QuizQuizIdRouteImport } from './routes/quiz.$quizId'
+ import { Route as DotlovableOauthConsentRouteImport } from './routes/[.]lovable.oauth.consent'
+ import { Route as AuthenticatedPanelCertyfikatyRouteImport } from './routes/_authenticated/panel.certyfikaty'
++import { Route as ApiAcademyCheckoutRouteImport } from './routes/api/academy/checkout'
++import { Route as ApiStripeWebhookRouteImport } from './routes/api/stripe/webhook'
+ import { Route as AuthenticatedPanelKursSlugRouteImport } from './routes/_authenticated/panel.kurs.$slug'
+ 
+ const IndexRoute = IndexRouteImport.update({
+@@ -114,6 +116,16 @@ const AuthenticatedPanelCertyfikatyRoute =
+     path: '/certyfikaty',
+     getParentRoute: () => AuthenticatedPanelRoute,
+   } as any)
++const ApiAcademyCheckoutRoute = ApiAcademyCheckoutRouteImport.update({
++  id: '/api/academy/checkout',
++  path: '/api/academy/checkout',
++  getParentRoute: () => rootRouteImport,
++} as any)
++const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
++  id: '/api/stripe/webhook',
++  path: '/api/stripe/webhook',
++  getParentRoute: () => rootRouteImport,
++} as any)
+ const AuthenticatedPanelKursSlugRoute =
+   AuthenticatedPanelKursSlugRouteImport.update({
+     id: '/kurs/$slug',
+@@ -138,6 +150,8 @@ export interface FileRoutesByFullPath {
+   '/quiz/$quizId': typeof QuizQuizIdRoute
+   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
+   '/panel/certyfikaty': typeof AuthenticatedPanelCertyfikatyRoute
++  '/api/academy/checkout': typeof ApiAcademyCheckoutRoute
++  '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+   '/panel/kurs/$slug': typeof AuthenticatedPanelKursSlugRoute
+ }
+ export interface FileRoutesByTo {
+@@ -157,6 +171,8 @@ export interface FileRoutesByTo {
+   '/quiz/$quizId': typeof QuizQuizIdRoute
+   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
+   '/panel/certyfikaty': typeof AuthenticatedPanelCertyfikatyRoute
++  '/api/academy/checkout': typeof ApiAcademyCheckoutRoute
++  '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+   '/panel/kurs/$slug': typeof AuthenticatedPanelKursSlugRoute
+ }
+ export interface FileRoutesById {
+@@ -178,6 +194,8 @@ export interface FileRoutesById {
+   '/quiz/$quizId': typeof QuizQuizIdRoute
+   '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
+   '/_authenticated/panel/certyfikaty': typeof AuthenticatedPanelCertyfikatyRoute
++  '/api/academy/checkout': typeof ApiAcademyCheckoutRoute
++  '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+   '/_authenticated/panel/kurs/$slug': typeof AuthenticatedPanelKursSlugRoute
+ }
+ export interface FileRouteTypes {
+@@ -199,6 +217,8 @@ export interface FileRouteTypes {
+     | '/quiz/$quizId'
+     | '/.lovable/oauth/consent'
+     | '/panel/certyfikaty'
++    | '/api/academy/checkout'
++    | '/api/stripe/webhook'
+     | '/panel/kurs/$slug'
+   fileRoutesByTo: FileRoutesByTo
+   to:
+@@ -218,6 +238,8 @@ export interface FileRouteTypes {
+     | '/quiz/$quizId'
+     | '/.lovable/oauth/consent'
+     | '/panel/certyfikaty'
++    | '/api/academy/checkout'
++    | '/api/stripe/webhook'
+     | '/panel/kurs/$slug'
+   id:
+     | '__root__'
+@@ -238,6 +260,8 @@ export interface FileRouteTypes {
+     | '/quiz/$quizId'
+     | '/.lovable/oauth/consent'
+     | '/_authenticated/panel/certyfikaty'
++    | '/api/academy/checkout'
++    | '/api/stripe/webhook'
+     | '/_authenticated/panel/kurs/$slug'
+   fileRoutesById: FileRoutesById
+ }
+@@ -256,6 +280,8 @@ export interface RootRouteChildren {
+   LekcjaLessonIdRoute: typeof LekcjaLessonIdRoute
+   QuizQuizIdRoute: typeof QuizQuizIdRoute
+   DotlovableOauthConsentRoute: typeof DotlovableOauthConsentRoute
++  ApiAcademyCheckoutRoute: typeof ApiAcademyCheckoutRoute
++  ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
+ }
+ 
+ declare module '@tanstack/react-router' {
+@@ -379,6 +405,20 @@ declare module '@tanstack/react-router' {
+       preLoaderRoute: typeof AuthenticatedPanelCertyfikatyRouteImport
+       parentRoute: typeof AuthenticatedPanelRoute
+     }
++    '/api/academy/checkout': {
++      id: '/api/academy/checkout'
++      path: '/api/academy/checkout'
++      fullPath: '/api/academy/checkout'
++      preLoaderRoute: typeof ApiAcademyCheckoutRouteImport
++      parentRoute: typeof rootRouteImport
++    }
++    '/api/stripe/webhook': {
++      id: '/api/stripe/webhook'
++      path: '/api/stripe/webhook'
++      fullPath: '/api/stripe/webhook'
++      preLoaderRoute: typeof ApiStripeWebhookRouteImport
++      parentRoute: typeof rootRouteImport
++    }
+     '/_authenticated/panel/kurs/$slug': {
+       id: '/_authenticated/panel/kurs/$slug'
+       path: '/kurs/$slug'
+@@ -431,6 +471,8 @@ const rootRouteChildren: RootRouteChildren = {
+   LekcjaLessonIdRoute: LekcjaLessonIdRoute,
+   QuizQuizIdRoute: QuizQuizIdRoute,
+   DotlovableOauthConsentRoute: DotlovableOauthConsentRoute,
++  ApiAcademyCheckoutRoute: ApiAcademyCheckoutRoute,
++  ApiStripeWebhookRoute: ApiStripeWebhookRoute,
+ }
+ export const routeTree = rootRouteImport
+   ._addFileChildren(rootRouteChildren)
+diff --git a/src/routes/__root.tsx b/src/routes/__root.tsx
+index 38755139bed9452311572b259d964512c1e47cda..67fbaf2df04614fc94ffaeb078fde293a0693709 100644
+--- a/src/routes/__root.tsx
++++ b/src/routes/__root.tsx
+@@ -11,6 +11,7 @@ import { useEffect, type ReactNode } from "react";
+ 
+ import appCss from "../styles.css?url";
+ import { reportLovableError } from "../lib/lovable-error-reporting";
++import { isPlayPurchaseSurface } from "@/lib/mca-purchase-surface";
+ import { AuthProvider } from "../lib/auth";
+ import { I18nProvider } from "../lib/i18n";
+ import { Toaster } from "../components/ui/sonner";
+@@ -126,6 +127,7 @@ function RootShell({ children }: { children: ReactNode }) {
+ }
+ 
+ function RootComponent() {
++  useEffect(() => { isPlayPurchaseSurface(); }, []);
+   const { queryClient } = Route.useRouteContext();
+ 
+   return (
+diff --git a/src/routes/api/academy/checkout.ts b/src/routes/api/academy/checkout.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..d7c13508771aeff349adc60a532e51dfbb7943b9
+--- /dev/null
++++ b/src/routes/api/academy/checkout.ts
+@@ -0,0 +1,12 @@
++import { createFileRoute } from "@tanstack/react-router";
++
++export const Route = createFileRoute("/api/academy/checkout")({
++  server: {
++    handlers: {
++      POST: async ({ request }) => {
++        const { checkout } = await import("@/lib/mca-checkout.server");
++        return checkout(request);
++      },
++    },
++  },
++});
+diff --git a/src/routes/api/stripe/webhook.ts b/src/routes/api/stripe/webhook.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..34658e2264b6f5ea87c29f677f45ff48e7ba026e
+--- /dev/null
++++ b/src/routes/api/stripe/webhook.ts
+@@ -0,0 +1,17 @@
++import { createFileRoute } from "@tanstack/react-router";
++
++export const Route = createFileRoute("/api/stripe/webhook")({
++  server: {
++    handlers: {
++      POST: async ({ request }) => {
++        const { handleMcaWebhook } = await import("@/lib/mca-webhook.server");
++        const { mcaRpc } = await import("@/lib/mca-rpc.server");
++        return handleMcaWebhook(request, {
++          secret: process.env["STRIPE_WEBHOOK_SECRET"] || "",
++          stripeKey: process.env["STRIPE_SECRET_KEY"] || "",
++          applyPayment: (event) => mcaRpc("mca_apply_checkout_event", event),
++        });
++      },
++    },
++  },
++});
+diff --git a/src/routes/kurs.$slug.tsx b/src/routes/kurs.$slug.tsx
+index 8006de09114386a9ff26b60b3d60a250fe82aa92..79bd38a6110d5879290f59f464d9e90282c2cc9e 100644
+--- a/src/routes/kurs.$slug.tsx
++++ b/src/routes/kurs.$slug.tsx
+@@ -1,6 +1,6 @@
+ import { createFileRoute, Link, notFound } from "@tanstack/react-router";
+ import { useQuery } from "@tanstack/react-query";
+-import { toast } from "sonner";
++import { CourseCheckout } from "@/components/CourseCheckout";
+ import { Award, FileText, HelpCircle, Lock, PlayCircle, Unlock } from "lucide-react";
+ import { SiteHeader } from "@/components/SiteHeader";
+ import { SiteFooter } from "@/components/SiteFooter";
+@@ -311,20 +311,11 @@ function CoursePublicPage() {
+                     {formatPrice(course.price_cents, course.currency, lang)}
+                   </p>
+                 </div>
+-                <Button
+-                  variant="default"
+-                  size="lg"
+-                  className="w-full"
+-                  onClick={() =>
+-                    toast.info(t("course.paymentsSoon"))
+-                  }
+-                >
+-                  {t("common.buy")}
+-                </Button>
++                <CourseCheckout courseId={course.id} slug={course.slug} />
+                 <p className="text-xs text-muted-foreground">{t("course.vatNote")}</p>
+                 {!user && (
+                   <Button variant="outline" className="w-full" asChild>
+-                    <Link to="/auth" search={{ tryb: "rejestracja" }}>
++                    <Link to="/auth" search={{ tryb: "rejestracja", next: "/kurs/" + encodeURIComponent(course.slug) }}>
+                       {t("course.createAccount")}
+                     </Link>
+                   </Button>
+diff --git a/supabase/migrations/20261122234000_mca_stripe_checkout.sql b/supabase/migrations/20261122234000_mca_stripe_checkout.sql
+new file mode 100644
+index 0000000000000000000000000000000000000000..0d0d4bc19e6f18a715044876b48aeb7f18bee39c
+--- /dev/null
++++ b/supabase/migrations/20261122234000_mca_stripe_checkout.sql
+@@ -0,0 +1,139 @@
++BEGIN;
++
++-- Mirror the published one-off prices on installations bootstrapped from the older seed.
++UPDATE public.courses SET price_cents=12000,currency='EUR'
++WHERE id IN ('11111111-1111-4111-8111-111111111111','f166433e-5157-4341-9a38-800c62795ebd')
++  AND (price_cents IS DISTINCT FROM 12000 OR upper(currency) IS DISTINCT FROM 'EUR');
++
++CREATE TABLE public.mca_checkout_orders (
++  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
++  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
++  course_id uuid NOT NULL REFERENCES public.courses(id),
++  title text NOT NULL,
++  slug text NOT NULL,
++  live boolean NOT NULL,
++  status text NOT NULL DEFAULT 'pending'
++    CHECK (status IN ('pending', 'processing', 'expired', 'failed', 'paid')),
++  session_id text UNIQUE,
++  payment_intent text UNIQUE,
++  created_at timestamptz NOT NULL DEFAULT now(),
++  expires_at timestamptz NOT NULL DEFAULT date_trunc('second',now() + interval '23 hours'),
++  updated_at timestamptz NOT NULL DEFAULT now(),
++  paid_at timestamptz
++);
++CREATE UNIQUE INDEX mca_checkout_unfinished
++  ON public.mca_checkout_orders(user_id,course_id,live) WHERE status IN ('pending','processing');
++ALTER TABLE public.mca_checkout_orders ENABLE ROW LEVEL SECURITY;
++REVOKE ALL ON public.mca_checkout_orders FROM PUBLIC, anon, authenticated, service_role;
++
++CREATE FUNCTION public.mca_prepare_checkout(
++  p_user_id uuid, p_course_id uuid, p_live boolean
++) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
++DECLARE
++  selected_course public.courses;
++  sale public.mca_checkout_orders;
++BEGIN
++  IF p_course_id NOT IN ('11111111-1111-4111-8111-111111111111','f166433e-5157-4341-9a38-800c62795ebd')
++     OR p_live IS NULL OR p_user_id IS NULL THEN
++    RAISE EXCEPTION 'invalid_course_purchase';
++  END IF;
++  SELECT * INTO selected_course FROM public.courses
++    WHERE id=p_course_id AND is_published AND price_cents=12000 AND lower(currency)='eur';
++  IF NOT FOUND THEN RAISE EXCEPTION 'course_unavailable'; END IF;
++
++  PERFORM pg_advisory_xact_lock(hashtextextended(p_user_id::text||p_course_id::text,0));
++  IF EXISTS (SELECT 1 FROM public.enrollments WHERE user_id=p_user_id AND course_id=p_course_id
++             AND (promo_access OR (status='active' AND (expiry_date IS NULL OR expiry_date > now()))))
++     OR EXISTS (SELECT 1 FROM public.promo_redemptions r
++                JOIN public.promo_campaigns c ON c.id=r.campaign_id
++                WHERE r.user_id=p_user_id AND c.code='ROOFINGBETA10') THEN
++    RETURN jsonb_build_object('status','already_enrolled');
++  END IF;
++  -- Unbound sessions are never disclosed to a shopper. A bound session is retired
++  -- only after Stripe confirms expiration; delayed payment methods may still settle.
++  UPDATE public.mca_checkout_orders SET status='expired',updated_at=now()
++  WHERE user_id=p_user_id AND course_id=p_course_id AND live=p_live AND status='pending'
++    AND session_id IS NULL AND expires_at<=now();
++  SELECT * INTO sale FROM public.mca_checkout_orders WHERE user_id=p_user_id AND course_id=p_course_id
++    AND live=p_live AND status IN ('pending','processing') FOR UPDATE;
++  IF NOT FOUND THEN
++    INSERT INTO public.mca_checkout_orders(user_id,course_id,title,slug,live)
++    VALUES (p_user_id,p_course_id,selected_course.title,selected_course.slug,p_live) RETURNING * INTO sale;
++  END IF;
++  RETURN jsonb_build_object('status',sale.status,'order_id',sale.id,'session_id',sale.session_id,
++    'title',sale.title,'slug',sale.slug,'created_at',sale.created_at,
++    'expires_at',extract(epoch from sale.expires_at)::bigint);
++END $$;
++
++CREATE FUNCTION public.mca_bind_checkout(p_order_id uuid,p_session_id text)
++RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
++BEGIN
++  IF p_session_id IS NULL OR p_session_id !~ '^cs_(test_|live_)?[A-Za-z0-9]+$' THEN
++    RAISE EXCEPTION 'invalid_session';
++  END IF;
++  UPDATE public.mca_checkout_orders SET session_id=p_session_id, updated_at=now()
++  WHERE id=p_order_id AND (session_id IS NULL OR session_id=p_session_id);
++  IF NOT FOUND THEN RAISE EXCEPTION 'session_conflict'; END IF;
++END $$;
++
++CREATE FUNCTION public.mca_expire_checkout(p_order_id uuid,p_session_id text)
++RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
++BEGIN
++  PERFORM public.mca_bind_checkout(p_order_id,p_session_id);
++  UPDATE public.mca_checkout_orders SET status='expired',updated_at=now()
++  WHERE id=p_order_id AND session_id=p_session_id AND status='pending';
++END $$;
++
++CREATE FUNCTION public.mca_apply_checkout_event(
++  p_order_id uuid,p_user_id uuid,p_course_id uuid,p_session_id text,p_live boolean,
++  p_state text,p_payment_intent text,p_amount integer,p_currency text,p_paid_at timestamptz
++) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
++DECLARE
++  sale public.mca_checkout_orders;
++BEGIN
++  IF p_state IS NULL OR p_state NOT IN ('paid','processing','failed','expired') THEN
++    RAISE EXCEPTION 'invalid_event_state';
++  END IF;
++  PERFORM pg_advisory_xact_lock(hashtextextended(p_user_id::text||p_course_id::text,0));
++  SELECT * INTO sale FROM public.mca_checkout_orders WHERE id=p_order_id FOR UPDATE;
++  IF NOT FOUND OR sale.user_id IS DISTINCT FROM p_user_id OR sale.course_id IS DISTINCT FROM p_course_id
++     OR sale.live IS DISTINCT FROM p_live THEN RAISE EXCEPTION 'order_mismatch'; END IF;
++  PERFORM public.mca_bind_checkout(p_order_id,p_session_id);
++  IF p_state='paid' AND (p_amount IS DISTINCT FROM 12000 OR lower(p_currency) IS DISTINCT FROM 'eur'
++      OR p_payment_intent IS NULL OR p_payment_intent !~ '^pi_[A-Za-z0-9]+$'
++      OR p_paid_at IS NULL) THEN RAISE EXCEPTION 'payment_mismatch'; END IF;
++  IF sale.status='paid' THEN
++    IF p_state='paid' AND sale.payment_intent IS DISTINCT FROM p_payment_intent THEN
++      RAISE EXCEPTION 'payment_conflict';
++    END IF;
++    RETURN;
++  END IF;
++  IF p_state <> 'paid' THEN
++    -- Late events may arrive after a failure or expiration. Never reopen a terminal order.
++    IF sale.status IN ('pending','processing') AND NOT (sale.status='processing' AND p_state='expired') THEN
++      UPDATE public.mca_checkout_orders SET status=p_state,updated_at=now() WHERE id=sale.id;
++    END IF;
++    RETURN;
++  END IF;
++  -- A paid course has lifetime access immediately, including its materials after certification.
++  INSERT INTO public.enrollments AS e (user_id,course_id,status,activation_date,expiry_date,promo_access)
++  VALUES (sale.user_id,sale.course_id,'active',p_paid_at,NULL,false)
++  ON CONFLICT (user_id,course_id) DO UPDATE
++    SET status='active',
++        activation_date=CASE WHEN e.status='active' AND (e.expiry_date IS NULL OR e.expiry_date>p_paid_at)
++                             THEN e.activation_date ELSE EXCLUDED.activation_date END,
++        expiry_date=NULL;
++  UPDATE public.mca_checkout_orders SET status='paid',payment_intent=p_payment_intent,
++    paid_at=p_paid_at,updated_at=now() WHERE id=sale.id;
++END $$;
++
++REVOKE ALL ON FUNCTION public.mca_prepare_checkout(uuid,uuid,boolean),
++  public.mca_bind_checkout(uuid,text), public.mca_expire_checkout(uuid,text),
++  public.mca_apply_checkout_event(uuid,uuid,uuid,text,boolean,text,text,integer,text,timestamptz)
++  FROM PUBLIC,anon,authenticated,service_role;
++GRANT EXECUTE ON FUNCTION public.mca_prepare_checkout(uuid,uuid,boolean),
++  public.mca_bind_checkout(uuid,text), public.mca_expire_checkout(uuid,text),
++  public.mca_apply_checkout_event(uuid,uuid,uuid,text,boolean,text,text,integer,text,timestamptz)
++  TO service_role;
++NOTIFY pgrst, 'reload schema';
++COMMIT;
+diff --git a/tests/mca-checkout-db.test.mjs b/tests/mca-checkout-db.test.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..7da46f63bb40504e51ccdf89479d12a180847704
+--- /dev/null
++++ b/tests/mca-checkout-db.test.mjs
+@@ -0,0 +1,164 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import { readFile } from 'node:fs/promises';
++import { createHmac } from 'node:crypto';
++import { checkout } from '../src/lib/mca-checkout.server.ts';
++import { mcaRpc } from '../src/lib/mca-rpc.server.ts';
++import { handleMcaWebhook } from '../src/lib/mca-webhook.server.ts';
++import { PGlite } from '@electric-sql/pglite';
++
++const user='ab000000-0000-4000-a000-000000000001';
++const basic='11111111-1111-4111-8111-111111111111';
++const reno='f166433e-5157-4341-9a38-800c62795ebd';
++const grantAt=new Date().toISOString();
++
++async function database(t){
++ const db=await PGlite.create();
++ t.after(()=>db.close());
++ await db.exec(`CREATE SCHEMA auth; CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
++ CREATE TABLE auth.users(id uuid PRIMARY KEY);
++ CREATE TABLE public.promo_campaigns(id uuid PRIMARY KEY,code text NOT NULL);
++ CREATE TABLE public.promo_redemptions(user_id uuid,campaign_id uuid REFERENCES public.promo_campaigns(id));
++ CREATE TABLE public.courses(id uuid PRIMARY KEY,slug text NOT NULL,title text NOT NULL,is_published boolean NOT NULL,price_cents int NOT NULL,currency text NOT NULL);
++ CREATE TABLE public.enrollments(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL REFERENCES auth.users(id),course_id uuid NOT NULL REFERENCES public.courses(id),
++  activation_date timestamptz DEFAULT now(), expiry_date timestamptz, status text DEFAULT 'active', promo_access boolean NOT NULL DEFAULT false, UNIQUE(user_id,course_id));`);
++ await db.query("INSERT INTO auth.users VALUES ($1)",[user]);
++ await db.query("INSERT INTO courses VALUES ($1,'basic','Basic',true,8900,'EUR'),($2,'reno','Renovation',true,9900,'EUR')",[basic,reno]);
++ await db.exec(await readFile(new URL('../supabase/migrations/20261122234000_mca_stripe_checkout.sql',import.meta.url),'utf8'));
++ return db;
++}
++
++test('PostgreSQL guards the EUR 120 course order and atomically grants lifetime access once',async t=>{
++ const db=await database(t);
++ const prepare=async(course=basic)=>(await db.query('select mca_prepare_checkout($1,$2,true) as sale',[user,course])).rows[0].sale;
++ const first=await prepare(),other=await prepare(reno);
++ assert.equal((await prepare()).order_id,first.order_id);
++ assert.notEqual(other.order_id,first.order_id);
++ assert.equal(first.status,'pending');
++ assert.equal(first.slug,'basic');
++ const event=async(state,amount=12000,course=basic,intent='pi_example',id=first.order_id,sid='cs_live_example')=>db.query(
++   'select mca_apply_checkout_event($1,$2,$3,$4,true,$5,$6,$7,$8,$9)',[id,user,course,sid,state,state==='paid'?intent:null,amount,'eur',grantAt]);
++ await db.exec('set role authenticated');
++ await assert.rejects(prepare(),/permission denied/);
++ await assert.rejects(event('paid'),/permission denied/);
++ await db.exec('reset role');
++ await db.exec('set role service_role');
++ await event('processing');
++ assert.equal((await prepare()).status,'processing');
++ await assert.rejects(event('paid',8900),/payment_mismatch/);
++ await assert.rejects(event('paid',12000,reno),/order_mismatch/);
++ await assert.rejects(event('paid',12000,basic,'pi_bad',first.order_id,'cs_live_wrong'),/session_conflict/);
++ await db.exec('reset role');
++ assert.equal((await db.query('select count(*)::integer as n from enrollments')).rows[0].n,0);
++ await event('paid');
++ const enrollment=(await db.query('select * from enrollments')).rows[0];
++ assert.equal(enrollment.course_id,basic);
++ assert.equal(enrollment.user_id,user);
++ assert.equal(enrollment.expiry_date,null);
++ assert.equal(new Date(enrollment.activation_date).toISOString(),grantAt);
++ assert.equal(enrollment.status,'active');
++ assert.equal((await prepare()).status,'already_enrolled');
++ await event('paid');
++ await event('expired');
++ await assert.rejects(event('paid',12000,basic,'pi_another'),/payment_conflict/);
++ assert.equal((await db.query('select expiry_date from enrollments')).rows[0].expiry_date,null);
++ await event('failed',12000,reno,null,other.order_id,'cs_live_reno');
++ const replacement=await prepare(reno);
++ assert.notEqual(replacement.order_id,other.order_id);
++ await db.query('SELECT mca_bind_checkout($1,$2)',[replacement.order_id,'cs_live_new']);
++ await db.query('SELECT mca_expire_checkout($1,$2)',[replacement.order_id,'cs_live_new']);
++ const abandoned=await prepare(reno);
++ assert.notEqual(abandoned.order_id,replacement.order_id);
++ await db.query("UPDATE mca_checkout_orders SET expires_at=now()-interval '1 minute' WHERE id=$1",[abandoned.order_id]);
++ assert.notEqual((await prepare(reno)).order_id,abandoned.order_id);
++ await db.query("INSERT INTO promo_campaigns VALUES ($1,'ROOFINGBETA10')",[user]);
++ await db.query("INSERT INTO promo_redemptions VALUES ($1,$1)",[user]);
++ assert.equal((await prepare(reno)).status,'already_enrolled');
++ await db.query('UPDATE courses SET price_cents=8900 WHERE id=$1',[reno]);
++ await assert.rejects(prepare(reno),/course_unavailable/);
++});
++
++test('signed-in checkout → asynchronous payment → only the purchased course becomes available',async t=>{
++  const db=await database(t);
++  const origin='https://staging.example.invalid';
++  const api='https://backend.example.invalid';
++  const env={
++    STRIPE_SECRET_KEY:'sk_test_fixture',STRIPE_WEBHOOK_SECRET:'whsec_fixture',
++    STRIPE_PRICE_BASIC:'price_basic',STRIPE_PRICE_RENOVATION:'price_renovation',
++    MCA_CHECKOUT_ORIGIN:origin,
++    SUPABASE_URL:api,SUPABASE_PUBLISHABLE_KEY:'fixture-public',SUPABASE_SERVICE_ROLE_KEY:'fixture-service',
++  };
++  const saved=Object.fromEntries(Object.keys(env).map(key=>[key,process.env[key]]));
++  Object.assign(process.env,env);
++  t.after(()=>{for(const [key,value] of Object.entries(saved)){
++    if(value===undefined) delete process.env[key]; else process.env[key]=value;
++  }});
++  const sqlRpc={
++    mca_prepare_checkout:['p_user_id','p_course_id','p_live'],
++    mca_bind_checkout:['p_order_id','p_session_id'],
++    mca_apply_checkout_event:['p_order_id','p_user_id','p_course_id','p_session_id','p_live','p_state','p_payment_intent','p_amount','p_currency','p_paid_at'],
++  };
++  const sessions=[];
++  t.mock.method(globalThis,'fetch',async (input,init)=>{
++    const url=new URL(String(input));
++    const headers=new Headers(init.headers);
++    if(url.origin===api && url.pathname==='/auth/v1/user'){
++      assert.equal(headers.get('authorization'),'Bearer signed-in-test-user');
++      return Response.json({id:user});
++    }
++    if(url.origin===api && url.pathname.startsWith('/rest/v1/rpc/')){
++      const rpc=url.pathname.split('/').at(-1);
++      const fields=sqlRpc[rpc];
++      assert.ok(fields);
++      assert.equal(headers.get('authorization'),'Bearer fixture-service');
++      const args=JSON.parse(init.body);
++      assert.deepEqual(Object.keys(args).sort(),[...fields].sort());
++      const {rows}=await db.query('select '+rpc+'('+fields.map((_,i)=>'$'+(i+1)).join(',')+') as result',fields.map(k=>args[k]));
++      return Response.json(rows[0].result??null);
++    }
++    if(url.origin==='https://api.stripe.com' && url.pathname==='/v1/checkout/sessions'){
++      const form=init.body;
++      assert.equal(form.get('line_items[0][quantity]'),'1');
++      assert.equal(form.get('line_items[0][price]'),'price_basic');
++      const orderId=form.get('client_reference_id');
++      assert.ok(headers.get('idempotency-key').includes(orderId));
++      const session={
++        id:'cs_test_abc123',object:'checkout.session',amount_total:12000,currency:'eur',mode:'payment',
++        status:'open',payment_status:'unpaid',livemode:false,client_reference_id:orderId,
++        metadata:Object.fromEntries(['integration','mca_order_id','user_id','course_id'].map(k=>[k,form.get('metadata['+k+']')])),
++        url:'https://checkout.stripe.com/c/pay/integration-fixture',
++      };
++      sessions.push(session);
++      return Response.json(session);
++    }
++    if(url.origin==='https://api.stripe.com' && url.pathname==='/v1/checkout/sessions/cs_test_abc123'){
++      return Response.json(sessions[0]);
++    }
++    throw Error('Unexpected network request in test');
++  });
++  const start=async(id=basic)=> (await checkout(new Request(origin+'/api/academy/checkout',{
++    method:'POST',headers:{origin,authorization:'Bearer signed-in-test-user','content-type':'application/json'},
++    body:JSON.stringify({courseId:id}),
++  }))).json();
++  const open=await start();
++  assert.equal(open.status,'open');
++  assert.deepEqual(await start(),open);
++  assert.equal(sessions.length,1);
++  const send=async(type,paid)=>{
++    const at=Math.floor(Date.now()/1000);
++    const event={type,created:at,livemode:false,data:{object:{...sessions[0],status:'complete',payment_status:paid?'paid':'unpaid',payment_intent:paid?'pi_abc123':null}}};
++    const bytes=JSON.stringify(event);
++    const hmac=createHmac('sha256',env.STRIPE_WEBHOOK_SECRET).update(at+'.'+bytes).digest('hex');
++    const req=new Request(origin+'/api/stripe/webhook',{method:'POST',headers:{'stripe-signature':`t=${at},v1=${hmac}`},body:bytes});
++    return handleMcaWebhook(req,{secret:env.STRIPE_WEBHOOK_SECRET,stripeKey:env.STRIPE_SECRET_KEY,
++      applyPayment:async data=>mcaRpc('mca_apply_checkout_event',data)});
++  };
++  assert.equal((await send('checkout.session.completed',false)).status,200);
++  assert.deepEqual(await start(),{status:'processing'});
++  assert.deepEqual((await db.query('select user_id,course_id from enrollments')).rows,[]);
++  assert.equal((await send('checkout.session.async_payment_succeeded',true)).status,200);
++  assert.equal((await send('checkout.session.async_payment_succeeded',true)).status,200);
++  assert.deepEqual((await db.query('select user_id,course_id,status,expiry_date from enrollments')).rows,
++    [{user_id:user,course_id:basic,status:'active',expiry_date:null}]);
++  assert.deepEqual(await start(),{status:'already_enrolled'});
++});
+diff --git a/tests/mca-checkout.test.mjs b/tests/mca-checkout.test.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..48968de08d9dd956d631c1d1be00a7b89d949f5f
+--- /dev/null
++++ b/tests/mca-checkout.test.mjs
+@@ -0,0 +1,209 @@
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import { checkout } from "../src/lib/mca-checkout.server.ts";
++import { isPlayPurchaseSurface } from "../src/lib/mca-purchase-surface.ts";
++
++const origin = "https://staging.example.invalid";
++const basic = "11111111-1111-4111-8111-111111111111";
++const renovation = "f166433e-5157-4341-9a38-800c62795ebd";
++const user = "bbbbbbbb-dddd-4222-8111-444444444444";
++const order = "aaaaaaaa-eeee-4333-8111-333333333333";
++const endpoint = "/api/academy/checkout";
++
++function request(courseId = basic, options = {}) {
++  const headers = { Origin: origin, Authorization: "Bearer local-fixture", "Content-Type": "application/json" };
++  return new Request(origin + endpoint, {
++    method: "POST",
++    headers: { ...headers, ...options.headers },
++    body: options.body ?? JSON.stringify({ courseId }),
++  });
++}
++
++function fixture(t, { prepare, mutate, authStatus = 200, bindStatus = 200 } = {}) {
++  const env = {
++    MCA_CHECKOUT_ORIGIN: origin, STRIPE_SECRET_KEY: "rk_test_localfixture",
++    STRIPE_PRICE_BASIC: "price_basic120", STRIPE_PRICE_RENOVATION: "price_renovation120",
++    STRIPE_WEBHOOK_SECRET: "whsec_localfixture",
++    SUPABASE_URL: "https://backend.example.invalid/subpath/", SUPABASE_PUBLISHABLE_KEY: "test-public",
++    SUPABASE_SERVICE_ROLE_KEY: "sb_secret_localfixture",
++  };
++  const original = Object.fromEntries(Object.keys(env).map(k => [k, process.env[k]]));
++  Object.assign(process.env, env);
++  t.after(() => {
++    for (const [key, value] of Object.entries(original)) {
++      if (value === undefined) delete process.env[key]; else process.env[key] = value;
++    }
++  });
++
++  const calls = [];
++  const orders = new Map();
++  const sessions = new Map();
++  const expiry = Math.floor(Date.now()/1000) + 23 * 3600;
++  t.mock.method(globalThis, "fetch", async (input, init) => {
++    const path = new URL(input).pathname;
++    const headers = new Headers(init.headers);
++    calls.push({ path, headers, body: init.body, method: init.method });
++    let response;
++    if (path === "/subpath/auth/v1/user") {
++      assert.equal(headers.get("authorization"), "Bearer local-fixture");
++      assert.equal(headers.get("apikey"), env.SUPABASE_PUBLISHABLE_KEY);
++      return Response.json({ id: user }, { status: authStatus });
++    }
++    if (path.includes("/rest/v1/rpc/")) {
++      assert.equal(headers.get("apikey"), env.SUPABASE_SERVICE_ROLE_KEY);
++      assert.equal(headers.get("authorization"), null);
++      const rpc = path.split("/").at(-1);
++      const p = JSON.parse(init.body);
++      if (rpc === "mca_prepare_checkout") {
++        assert.deepEqual(p, { p_user_id: user, p_course_id: p.p_course_id, p_live: false });
++        const info = orders.get(p.p_course_id) ?? {
++          status: "pending", order_id: order, expires_at: expiry, session_id: null, slug: "roof-work",
++        };
++        orders.set(p.p_course_id, info);
++        response = prepare?.(info, p) ?? info;
++      } else if (rpc === "mca_bind_checkout") {
++        for (const record of orders.values()) if (record.order_id === p.p_order_id) record.session_id = p.p_session_id;
++        return Response.json(null, { status: bindStatus });
++      } else if (rpc === "mca_expire_checkout") {
++        for (const record of orders.values()) {
++          if (record.session_id === p.p_session_id) {
++            record.order_id = "dddddddd-eeee-4333-8111-333333333333";
++            record.session_id = null;
++          }
++        }
++        response = null;
++      } else assert.fail("unexpected RPC");
++    } else if (path === "/v1/checkout/sessions") {
++      assert.equal(init.method, "POST");
++      const p = init.body;
++      assert.equal(headers.get("idempotency-key"), "mca-course-v1-" + p.get("client_reference_id"));
++      assert.equal(p.get("success_url"), origin + "/kurs/roof-work?mca_payment=return");
++      assert.equal(p.get("cancel_url"), origin + "/kurs/roof-work");
++      assert.equal(p.get("expires_at"), String(expiry));
++      assert.equal(p.get("mode"), "payment");
++      assert.equal(p.get("line_items[0][quantity]"), "1");
++      assert.equal(p.get("adaptive_pricing[enabled]"), "false");
++      assert.equal(p.get("metadata[user_id]"), user);
++      const id = "cs_test_" + p.get("client_reference_id");
++      const metadata = Object.fromEntries(["course_id", "user_id", "mca_order_id", "integration"].map(k => [k, p.get("metadata[" + k + "]")]));
++      assert.equal(metadata.integration, "mca_courses_v1");
++      assert.equal(metadata.mca_order_id, p.get("client_reference_id"));
++      const session = { id, metadata, client_reference_id: p.get("client_reference_id"), mode: "payment",
++        livemode: false, amount_total: 12000, currency: "eur", status: "open", url: "https://checkout.stripe.com/c/pay/" + id };
++      sessions.set(id, session);
++      response = mutate?.(session) ?? session;
++    } else if (path.startsWith("/v1/checkout/sessions/")) {
++      assert.equal(init.method, "GET");
++      response = sessions.get(decodeURIComponent(path.split("/").at(-1)));
++      assert.ok(response);
++    } else assert.fail("unexpected request");
++    return Response.json(response);
++  });
++  return { calls, sessions, orders };
++}
++
++for (const [courseId, priceId] of [[basic, "price_basic120"], [renovation, "price_renovation120"]]) {
++  test("authenticates and binds only the selected one-off course " + priceId, async t => {
++    const { calls } = fixture(t);
++    const res = await checkout(request(courseId, { body: JSON.stringify({ courseId, price: 7900, user_id: "ignored" }) }));
++    assert.equal(res.status, 200);
++    const { url, status } = await res.json();
++    assert.equal(status, "open");
++    assert.match(url, /^https:\/\/checkout.stripe.com\/c\/pay\/cs_test_/);
++    const post = calls.find(c => c.path === "/v1/checkout/sessions");
++    assert.equal(post.body.get("line_items[0][price]"), priceId);
++    assert.equal(post.body.get("metadata[course_id]"), courseId);
++    assert.equal(calls.at(-1).path, "/subpath/rest/v1/rpc/mca_bind_checkout");
++    assert.equal(res.headers.get("cache-control"), "no-store");
++    const retried = await (await checkout(request(courseId))).json();
++    assert.equal(retried.url, url);
++    assert.equal(calls.filter(c => c.path === "/v1/checkout/sessions").length, 1);
++  });
++}
++
++test("accepts only authenticated, same-origin requests for an existing course", async t => {
++  const { calls } = fixture(t, { authStatus: 401 });
++  assert.equal((await checkout(request("unknown"))).status, 400);
++  assert.equal((await checkout(request(basic, { body: "{" }))).status, 400);
++  assert.equal((await checkout(request(basic, { body: JSON.stringify({ courseId: basic, padding: "x".repeat(3000) }) }))).status, 400);
++  assert.equal((await checkout(request(basic, { headers: { Origin: "https://other.invalid" } }))).status, 403);
++  assert.equal((await checkout(request(basic, { headers: { "Content-Type": "text/plain" } }))).status, 415);
++  assert.equal((await checkout(request(basic, { headers: { Authorization: "" } }))).status, 401);
++  assert.equal((await checkout(request())).status, 401);
++  assert.equal(calls.length, 1);
++});
++
++test("refuses mismatched mode, missing webhook and reused price IDs", async t => {
++  const { calls } = fixture(t);
++  for (const [key, value, sentOrigin] of [
++    ["MCA_CHECKOUT_ORIGIN", "https://markacentrumacademy.eu", "https://markacentrumacademy.eu"],
++    ["STRIPE_SECRET_KEY", "rk_live_localfixture", origin], ["STRIPE_WEBHOOK_SECRET", "", origin],
++    ["STRIPE_PRICE_RENOVATION", "price_basic120", origin],
++  ]) {
++    const before = process.env[key]; process.env[key] = value;
++    assert.equal((await checkout(request(basic, { headers: { Origin: sentOrigin } }))).status, 503);
++    process.env[key] = before;
++  }
++  assert.ok(calls.every(c => c.path.endsWith("/auth/v1/user")));
++});
++
++for (const condition of ["already_enrolled", "processing"]) {
++  test("does not create a checkout for " + condition, async t => {
++    const { calls } = fixture(t, { prepare: () => ({ status: condition }) });
++    assert.deepEqual(await (await checkout(request())).json(), { status: condition });
++    assert.equal(calls.length, 2);
++  });
++}
++
++test("rejects wrong price, metadata, mode, currency or redirect before exposing a URL", async t => {
++  let adjust = () => ({});
++  const { calls } = fixture(t, { mutate: session => ({ ...session, ...adjust(session) }) });
++  for (const change of [() => ({ amount_total: 7900 }), () => ({ currency: "usd" }),
++    () => ({ livemode: true }), () => ({ mode: "subscription" }),
++    () => ({ metadata: {} }), () => ({ url: "https://other.invalid" })]) {
++    adjust = change;
++    const res = await checkout(request());
++    assert.equal(res.status, 503);
++    assert.deepEqual(await res.json(), { error: "checkout_unavailable" });
++  }
++  // A finance or identity mismatch never binds an order.
++  assert.ok(calls.filter(c => c.path.endsWith("/mca_bind_checkout")).length <= 1);
++});
++
++test("does not expose a payment URL until durable binding succeeds", async t => {
++  fixture(t, { bindStatus: 503 });
++  const res = await checkout(request());
++  assert.equal(res.status, 503);
++  assert.deepEqual(await res.json(), { error: "checkout_unavailable" });
++});
++
++test("an expired, verified session can be replaced, and a completed session is never charged again", async t => {
++  const { sessions, calls } = fixture(t);
++  const initial = await (await checkout(request())).json();
++  [...sessions.values()][0].status = "expired";
++  const replacement = await (await checkout(request())).json();
++  assert.equal(replacement.status, "open");
++  assert.notEqual(initial.url, replacement.url);
++  assert.equal(calls.filter(c => c.path.endsWith("/mca_expire_checkout")).length, 1);
++  [...sessions.values()][1].status = "complete";
++  assert.deepEqual(await (await checkout(request())).json(), { status: "processing" });
++  assert.equal(calls.filter(c => c.path === "/v1/checkout/sessions").length, 2);
++});
++
++test("the Play launch context survives navigation and sign-in; Android browser checkout stays available", t => {
++  let referrer = "android-app://eu.markacentrumacademy.app";
++  const storage = new Map();
++  for (const [key, value] of Object.entries({
++    window: { matchMedia: () => ({ matches: false }) }, document: { get referrer() { return referrer; } },
++    navigator: { userAgent: "Android" }, sessionStorage: { getItem: k => storage.get(k), setItem: (k,v) => storage.set(k,v) },
++  })) {
++    const original = Object.getOwnPropertyDescriptor(globalThis, key);
++    Object.defineProperty(globalThis, key, { configurable: true, value });
++    t.after(() => original ? Object.defineProperty(globalThis, key, original) : delete globalThis[key]);
++  }
++  assert.equal(isPlayPurchaseSurface(), true);
++  referrer = origin + "/auth";
++  assert.equal(isPlayPurchaseSurface(), true);
++  storage.clear();
++  assert.equal(isPlayPurchaseSurface(), false);
++});
+diff --git a/tests/mca-webhook.test.mjs b/tests/mca-webhook.test.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..ea043da0ae9738b0b5211ef8f2db28783bf47193
+--- /dev/null
++++ b/tests/mca-webhook.test.mjs
+@@ -0,0 +1,63 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import { createHmac } from 'node:crypto';
++import { handleMcaWebhook } from '../src/lib/mca-webhook.server.ts';
++
++const order = 'aabbccdd-1234-4521-9123-112233445566';
++const course = '11111111-1111-4111-8111-111111111111';
++const user = 'ffbbccdd-1234-4521-9123-112233445566';
++const now = Math.floor(Date.now()/1000);
++const endpointSecret = 'whsec_local_fixture';
++const session = {
++  id:'cs_test_a1test',object:'checkout.session',livemode:false,mode:'payment',status:'complete',
++  payment_status:'paid',amount_total:12000,currency:'eur',payment_intent:'pi_test',
++  client_reference_id:order, metadata:{ integration:'mca_courses_v1', mca_order_id:order, user_id:user, course_id:course },
++};
++
++async function deliver({changes={},type='checkout.session.completed',signedAt=now,wrongKey=false,rawAfterSigning=false,
++                         key='sk_test_fixture',callback=async()=>{},extraVersion=false}={}) {
++  const data={type,livemode:false,created:now,data:{object:{...session,...changes}}};
++  const raw=JSON.stringify(data);
++  const signature=createHmac('sha256',wrongKey?'wrong':endpointSecret).update(signedAt+'.'+raw).digest('hex');
++  const headers={'stripe-signature': 't='+signedAt+','+(extraVersion?'v1='+'0'.repeat(64)+',':'')+'v1='+signature};
++  const request=new Request('https://academy.invalid/api/stripe/webhook',{method:'POST',headers,body:rawAfterSigning?raw+' ':raw});
++  return (await handleMcaWebhook(request,{secret:endpointSecret,stripeKey:key,applyPayment:callback})).status;
++}
++
++test('captures verified successful EUR 120 payment with the authenticated order binding', async()=>{
++  const captured=[];
++  assert.equal(await deliver({extraVersion:true,callback:async p=>captured.push(p)}),200);
++  assert.deepEqual(captured,[{p_order_id:order,p_user_id:user,p_course_id:course,p_session_id:session.id,
++    p_state:'paid',p_live:false,p_amount:12000,p_currency:'eur',p_payment_intent:'pi_test',p_paid_at:new Date(now*1000).toISOString()}]);
++});
++
++test('rejects signature mismatch, stale or future signatures, modified bytes, mode and financial mismatches', async()=>{
++  const cases=[{wrongKey:true},{rawAfterSigning:true},{signedAt:now-600},{signedAt:now+600},
++    {key:'sk_live_fixture'}, {changes:{client_reference_id:user}}, {changes:{currency:'usd'}},
++    {changes:{amount_total:11999}}, {changes:{amount_total:12100}}, {changes:{payment_intent:null}},
++    {changes:{payment_status:'no_payment_required'}}, {changes:{mode:'subscription'}}];
++  for(const input of cases) {
++    let called=false;
++    assert.equal(await deliver({...input,callback:async()=>{called=true}}),400);
++    assert.equal(called,false);
++  }
++});
++
++test('accepts verified async states without granting access before payment', async()=>{
++  const states=[];
++  const stmts=[['checkout.session.completed',{payment_status:'unpaid'},'processing'],
++    ['checkout.session.async_payment_succeeded',{},'paid'],
++    ['checkout.session.async_payment_failed',{payment_status:'unpaid'},'failed'],
++    ['checkout.session.expired',{status:'expired',payment_status:'unpaid'},'expired']];
++  for(const [type,changes,state] of stmts) {
++    assert.equal(await deliver({type,changes,callback:async p=>states.push(p.p_state)}),200);
++    assert.equal(states.at(-1),state);
++  }
++});
++
++test('ignores unrelated products; retries if storage unavailable',async()=>{
++  let called=false;
++  assert.equal(await deliver({changes:{metadata:{}},callback:async()=>{called=true}}),200);
++  assert.equal(called,false);
++  assert.equal(await deliver({callback:async()=>{throw new Error('temporary')}}),503);
++});
