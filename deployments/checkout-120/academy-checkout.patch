@@ -645,11 +645,16 @@ index 8006de09114386a9ff26b60b3d60a250fe82aa92..79bd38a6110d5879290f59f464d9e902
                    </Button>
 diff --git a/supabase/migrations/20261122234000_mca_stripe_checkout.sql b/supabase/migrations/20261122234000_mca_stripe_checkout.sql
 new file mode 100644
-index 0000000000000000000000000000000000000000..7c5296d481554092ecf7507e9a7dee66f853299a
+index 0000000000000000000000000000000000000000..fb9508486adfd43917693c5aa3ee438c6e19c144
 --- /dev/null
 +++ b/supabase/migrations/20261122234000_mca_stripe_checkout.sql
-@@ -0,0 +1,137 @@
+@@ -0,0 +1,142 @@
 +BEGIN;
++
++-- Mirror the published one-off prices on installations bootstrapped from the older seed.
++UPDATE public.courses SET price_cents=12000,currency='EUR'
++WHERE id IN ('11111111-1111-4111-8111-111111111111','f166433e-5157-4341-9a38-800c62795ebd')
++  AND (price_cents IS DISTINCT FROM 12000 OR upper(currency) IS DISTINCT FROM 'EUR');
 +
 +CREATE TABLE public.mca_checkout_orders (
 +  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -788,7 +793,7 @@ index 0000000000000000000000000000000000000000..7c5296d481554092ecf7507e9a7dee66
 +COMMIT;
 diff --git a/tests/mca-checkout-db.test.mjs b/tests/mca-checkout-db.test.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..0e2e293157768fa85ff5f46bad54503b5b6843a9
+index 0000000000000000000000000000000000000000..7d89bad6f0c2cf648e7492808f0773ec0be2d5ca
 --- /dev/null
 +++ b/tests/mca-checkout-db.test.mjs
 @@ -0,0 +1,161 @@
@@ -817,7 +822,7 @@ index 0000000000000000000000000000000000000000..0e2e293157768fa85ff5f46bad54503b
 + CREATE TABLE public.enrollments(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL REFERENCES auth.users(id),course_id uuid NOT NULL REFERENCES public.courses(id),
 +  activation_date timestamptz DEFAULT now(), expiry_date timestamptz, status text DEFAULT 'active', promo_access boolean NOT NULL DEFAULT false, UNIQUE(user_id,course_id));`);
 + await db.query("INSERT INTO auth.users VALUES ($1)",[user]);
-+ await db.query("INSERT INTO courses VALUES ($1,'basic','Basic',true,12000,'EUR'),($2,'reno','Renovation',true,12000,'EUR')",[basic,reno]);
++ await db.query("INSERT INTO courses VALUES ($1,'basic','Basic',true,8900,'EUR'),($2,'reno','Renovation',true,9900,'EUR')",[basic,reno]);
 + await db.exec(await readFile(new URL('../supabase/migrations/20261122234000_mca_stripe_checkout.sql',import.meta.url),'utf8'));
 + return db;
 +}
