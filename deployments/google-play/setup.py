@@ -165,6 +165,8 @@ def probe():
                     'Belgian Google Play gross price differs from EUR 120')
         print('PLAY_PRODUCT_VERIFIED',sku,'ACTIVE BE EUR 120.00')
     status,body=http(BASE+'/purchases/voidedpurchases?maxResults=1',headers={'Authorization':'Bearer '+token})
+    if status != 200:
+        print('PLAY_PURCHASES_API_ERROR',json.dumps((body or {}).get('error',{})))
     pay.require(status==200,'Google purchases permission check failed: '+str(status))
     status,body=http(BASE+'/purchases/productsv2/tokens/mca-configuration-invalid-token',headers={'Authorization':'Bearer '+token})
     # The request contains a deliberately invalid, non-secret token. Print only its error classification.
