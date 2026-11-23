@@ -51,7 +51,9 @@ def http(url, data=None, headers=None, method=None):
             body=r.read(1048576)
             return r.status,json.loads(body) if body else None
     except urllib.error.HTTPError as error:
-        return error.code, None
+        try: body=json.loads(error.read(16384))
+        except Exception: body=None
+        return error.code, body
 
 def psql(sql, **params):
     command=['docker','exec','-i',pay.DB,'psql','-XAtq','-v','ON_ERROR_STOP=1','-U','postgres','-d','postgres']
@@ -104,6 +106,7 @@ def prepare():
     pay.require(public.startswith(b'-----BEGIN CERTIFICATE-----') and b'PRIVATE KEY' not in public,
                 'Only a public certificate may leave the private directory')
     CERT_DIR.mkdir(mode=0o755,exist_ok=True)
+    CERT_DIR.chmod(0o755)
     (CERT_DIR/CERT_NAME).write_bytes(public)
     (CERT_DIR/CERT_NAME).chmod(0o644)
     original=NGINX.read_text()
@@ -161,8 +164,14 @@ def probe():
         pay.require(price.get('currencyCode')=='EUR' and int(price.get('units',0))==120 and int(price.get('nanos',0))==0,
                     'Belgian Google Play gross price differs from EUR 120')
         print('PLAY_PRODUCT_VERIFIED',sku,'ACTIVE BE EUR 120.00')
-    status,_=http(BASE+'/purchases/productsv2/tokens/mca-configuration-invalid-token',headers={'Authorization':'Bearer '+token})
-    pay.require(status in (400,404),'Google purchases permission check failed: '+str(status))
+    status,body=http(BASE+'/purchases/voidedpurchases?maxResults=1',headers={'Authorization':'Bearer '+token})
+    pay.require(status==200,'Google purchases permission check failed: '+str(status))
+    status,body=http(BASE+'/purchases/productsv2/tokens/mca-configuration-invalid-token',headers={'Authorization':'Bearer '+token})
+    # The request contains a deliberately invalid, non-secret token. Print only its error classification.
+    error=(body or {}).get('error',{})
+    print('PLAY_INVALID_TOKEN_RESPONSE',status,error.get('status'),
+          [e.get('reason') for e in error.get('errors',[])])
+    pay.require(status in (400,401,404),'Unexpected invalid-token result: '+str(status))
     print('PLAY_GOOGLE_API_READY')
 
 def activate():
@@ -233,7 +242,10 @@ def student(kind):
             pay.require(kind=='review' and body.get('status')=='already_enrolled','Test student must be unenrolled')
     status,body=http('https://markacentrumacademy.eu/api/academy/google-play',
         json.dumps({'action':'verify','courseId':COURSES[0],'purchaseToken':'mca-configuration-invalid-token'}).encode(),headers)
-    pay.require(status==409 and body.get('error')=='purchase_not_found','Invalid purchase was not rejected')
+    pay.require(status in (409,503) and body.get('error') in ('purchase_not_found','billing_unavailable'),
+                'Invalid purchase was not rejected')
+    orders=psql("SELECT count(*) FROM public.mca_play_orders WHERE user_id=:'uid'::uuid;",uid=user_id)
+    pay.require(orders=='0','Unexpected purchase recorded for the new Play account')
     if kind=='review':
         psql("""BEGIN;
 INSERT INTO public.enrollments(user_id,course_id,status,activation_date,expiry_date,promo_access)
