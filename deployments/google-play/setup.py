@@ -253,9 +253,9 @@ def student(kind):
     if kind=='review':
         psql("""BEGIN;
 INSERT INTO public.enrollments(user_id,course_id,status,activation_date,expiry_date,promo_access)
-SELECT :'uid'::uuid,id,'active',now(),NULL,true FROM public.courses
+SELECT :'uid'::uuid,id,'active',now(),NULL,false FROM public.courses
 WHERE id IN (:'basic'::uuid,:'renovation'::uuid)
-ON CONFLICT(user_id,course_id) DO UPDATE SET status='active',expiry_date=NULL,promo_access=true;
+ON CONFLICT(user_id,course_id) DO UPDATE SET status='active',expiry_date=NULL;
 COMMIT;""",uid=user_id,basic=COURSES[0],renovation=COURSES[1])
         count=psql("SELECT count(*) FROM public.enrollments WHERE user_id=:'uid'::uuid AND status='active' AND expiry_date IS NULL;",uid=user_id)
         pay.require(count=='2','Reviewer needs both courses')
