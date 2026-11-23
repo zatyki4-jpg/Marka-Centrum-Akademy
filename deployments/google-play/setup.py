@@ -233,7 +233,8 @@ def student(kind):
     pay.require(status==200 and session['user']['id']==user_id,'Student sign-in failed: '+str(status))
     headers={'Authorization':'Bearer '+session['access_token'],'Content-Type':'application/json',
              'Origin':'https://markacentrumacademy.eu'}
-    for course,sku in zip(COURSES,SKUS):
+    enabled=env.get('MCA_PLAY_ENABLED')=='true'
+    for course,sku in (zip(COURSES,SKUS) if enabled else []):
         status,body=http('https://markacentrumacademy.eu/api/academy/google-play',
             json.dumps({'action':'config','courseId':course}).encode(),headers)
         pay.require(status==200 and body.get('ok') is True,'Authenticated billing config failed: '+str(status))
@@ -242,10 +243,11 @@ def student(kind):
                         'Invalid billing identity or SKU')
         else:
             pay.require(kind=='review' and body.get('status')=='already_enrolled','Test student must be unenrolled')
-    status,body=http('https://markacentrumacademy.eu/api/academy/google-play',
-        json.dumps({'action':'verify','courseId':COURSES[0],'purchaseToken':'mca-configuration-invalid-token'}).encode(),headers)
-    pay.require(status in (409,503) and body.get('error') in ('purchase_not_found','billing_unavailable'),
-                'Invalid purchase was not rejected')
+    if enabled:
+        status,body=http('https://markacentrumacademy.eu/api/academy/google-play',
+            json.dumps({'action':'verify','courseId':COURSES[0],'purchaseToken':'mca-configuration-invalid-token'}).encode(),headers)
+        pay.require(status in (409,503) and body.get('error') in ('purchase_not_found','billing_unavailable'),
+                    'Invalid purchase was not rejected')
     orders=psql("SELECT count(*) FROM public.mca_play_orders WHERE user_id=:'uid'::uuid;",uid=user_id)
     pay.require(orders=='0','Unexpected purchase recorded for the new Play account')
     if kind=='review':
@@ -258,7 +260,8 @@ COMMIT;""",uid=user_id,basic=COURSES[0],renovation=COURSES[1])
         count=psql("SELECT count(*) FROM public.enrollments WHERE user_id=:'uid'::uuid AND status='active' AND expiry_date IS NULL;",uid=user_id)
         pay.require(count=='2','Reviewer needs both courses')
     print('PLAY_STUDENT_READY',kind,email,'administrator=false','courses=2' if kind=='review' else 'courses=0')
-    print('PLAY_AUTHENTICATED_CONFIG_OK INVALID_PURCHASE_REJECTED')
+    if enabled: print('PLAY_AUTHENTICATED_CONFIG_OK INVALID_PURCHASE_REJECTED')
+    else: print('PLAY_BILLING_TEST_DEFERRED_UNTIL_GOOGLE_PERMISSIONS_PROPAGATE')
 
 def cleanup():
     original=NGINX.read_text()
