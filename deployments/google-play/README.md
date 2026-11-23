@@ -39,7 +39,7 @@ Google Play Console products must be active and the purchase option backward com
 On the existing host, from this directory:
 
 ```bash
-python3 inspect.py
+python3 inspect_runtime.py
 python3 release.py check
 python3 release.py deploy
 ```
