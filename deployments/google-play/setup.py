@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 import time
@@ -36,6 +37,8 @@ BLOCK = '\n    # MCA temporary public certificate exchange\n    location = /'+CE
 COURSES = ['11111111-1111-4111-8111-111111111111','f166433e-5157-4341-9a38-800c62795ebd']
 SKUS = ['mca_bitumen_basic_lifetime','mca_bitumen_renovation_lifetime']
 BASE = 'https://androidpublisher.googleapis.com/androidpublisher/v3/applications/eu.markacentrumacademy.app'
+ACTIVATION_STATUS = PRIVATE/'google-play-activation-status.json'
+ACTIVATION_TIMER = 'mca-google-play-activation.timer'
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,*args,**kwargs):
@@ -173,7 +176,7 @@ def probe():
     error=(body or {}).get('error',{})
     print('PLAY_INVALID_TOKEN_RESPONSE',status,error.get('status'),
           [e.get('reason') for e in error.get('errors',[])])
-    pay.require(status in (400,401,404),'Unexpected invalid-token result: '+str(status))
+    pay.require(status in (400,404),'Purchase verification API is not ready: '+str(status))
     print('PLAY_GOOGLE_API_READY')
 
 def activate():
@@ -246,7 +249,7 @@ def student(kind):
     if enabled:
         status,body=http('https://markacentrumacademy.eu/api/academy/google-play',
             json.dumps({'action':'verify','courseId':COURSES[0],'purchaseToken':'mca-configuration-invalid-token'}).encode(),headers)
-        pay.require(status in (409,503) and body.get('error') in ('purchase_not_found','billing_unavailable'),
+        pay.require(status==409 and body.get('error')=='purchase_not_found',
                     'Invalid purchase was not rejected')
     orders=psql("SELECT count(*) FROM public.mca_play_orders WHERE user_id=:'uid'::uuid;",uid=user_id)
     pay.require(orders=='0','Unexpected purchase recorded for the new Play account')
@@ -283,6 +286,79 @@ def show(kind):
     print('PLAY_'+kind.upper()+'_LOGIN',login['email'])
     print('PASSWORD',login['password'])
 
+def activation_state(state, deadline, detail=''):
+    write_private(ACTIVATION_STATUS,json.dumps({'state':state,'deadline':deadline,
+        'checked_at':int(time.time()),'detail':detail})+'\n')
+    print('PLAY_ACTIVATION_STATUS',state)
+
+def disable_purchasing():
+    values=env_read()
+    values['MCA_PLAY_ENABLED']='false'
+    env_write(values)
+    fingerprint=release.runtime_fingerprint()
+    root,project,service,directory,files,envfiles,command=pay.inspect_current(APP)
+    pay.run(*command,'up','-d','--force-recreate','--no-build','--no-deps','--wait',service)
+    pay.require(release.runtime_fingerprint()==fingerprint,'Existing Stripe/auth settings changed')
+
+def retry_activation():
+    safe_file(ACTIVATION_STATUS)
+    status=json.loads(ACTIVATION_STATUS.read_text())
+    deadline=status['deadline']
+    pay.require(isinstance(deadline,int),'Invalid activation deadline')
+    if status['state']=='active':
+        pay.run('systemctl','stop',ACTIVATION_TIMER)
+        return
+    if env_read().get('MCA_PLAY_ENABLED')=='true':
+        activation_state('enabled_by_operator',deadline)
+        pay.run('systemctl','stop',ACTIVATION_TIMER)
+        return
+    if int(time.time())>=deadline:
+        activation_state('expired',deadline,'Google access still requires review; purchasing remains disabled')
+        pay.run('systemctl','stop',ACTIVATION_TIMER)
+        return
+    activated=False
+    try:
+        probe()
+        activate()
+        activated=True
+        student('test')
+    except Exception as error:
+        if activated:
+            disable_purchasing()
+        detail=str(error) if isinstance(error,ValueError) else type(error).__name__
+        activation_state('pending',deadline,detail)
+        return
+    activation_state('active',deadline,'Google API, course prices, student login and invalid-purchase rejection verified')
+    pay.run('systemctl','stop',ACTIVATION_TIMER)
+
+def install_activation_watch():
+    # Copy the reviewed operations code to a durable root-only directory, never execute from /tmp.
+    source_files=[HERE/'setup.py',HERE/'release.py',HERE.parent/'checkout-120/release.py']
+    digest=hashlib.sha256(b''.join(p.read_bytes() for p in source_files)).hexdigest()[:16]
+    destination=PRIVATE/('play-activation-'+digest)
+    for source in source_files:
+        relative=source.relative_to(HERE.parent)
+        target=destination/relative
+        target.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+        if target.exists(): pay.require(target.read_bytes()==source.read_bytes(),'Operations code differs')
+        else: shutil.copyfile(source,target)
+        target.chmod(0o600)
+    command='/usr/bin/python3 '+str(destination/'google-play/setup.py')+' retry-activation'
+    unit='[Unit]\nDescription=Finish approved MCA Play setup after Google permission propagation\nAfter=docker.service network-online.target\n\n[Service]\nType=oneshot\nExecStart='+command+'\nTimeoutStartSec=300\nUMask=0077\n'
+    timer='[Unit]\nDescription=Retry MCA Play activation for at most 48 hours\n\n[Timer]\nOnBootSec=120\nOnUnitActiveSec=300\nAccuracySec=5\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n'
+    for name,body in [('mca-google-play-activation.service',unit),(ACTIVATION_TIMER,timer)]:
+        target=Path('/etc/systemd/system')/name
+        if target.exists(): pay.require(target.read_text()==body,'Existing activation unit differs')
+        else: target.write_text(body)
+    if not ACTIVATION_STATUS.exists(): activation_state('pending',int(time.time())+48*3600)
+    pay.run('systemctl','daemon-reload')
+    pay.run('systemctl','enable','--now',ACTIVATION_TIMER)
+    print('PLAY_ACTIVATION_WATCH_INSTALLED interval=300s maximum=48h')
+
+def watch_status():
+    safe_file(ACTIVATION_STATUS)
+    print(ACTIVATION_STATUS.read_text())
+
 def inspect():
     root,*_ = pay.inspect_current(APP)
     print('ACTIVE_RELEASE',root)
@@ -291,7 +367,8 @@ def inspect():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode',choices=['prepare','inspect','probe','activate','review','test','cleanup','show-review','show-test'])
+    parser.add_argument('mode',choices=['prepare','inspect','probe','activate','review','test','cleanup','show-review','show-test',
+                                       'install-activation-watch','retry-activation','watch-status'])
     args = parser.parse_args()
     os.umask(0o077)
     try:
@@ -300,7 +377,9 @@ if __name__ == '__main__':
             fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
             {'prepare':prepare,'inspect':inspect,'probe':probe,'activate':activate,
              'review':lambda:student('review'),'test':lambda:student('test'),'cleanup':cleanup,
-             'show-review':lambda:show('review'),'show-test':lambda:show('test')}[args.mode]()
+             'show-review':lambda:show('review'),'show-test':lambda:show('test'),
+             'install-activation-watch':install_activation_watch,'retry-activation':retry_activation,
+             'watch-status':watch_status}[args.mode]()
     except Exception as error:
         if isinstance(error,ValueError): print(str(error),file=sys.stderr)
         sys.exit('MCA Play setup stopped; no secrets printed.')

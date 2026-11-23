@@ -61,7 +61,9 @@ Google Cloud project prepared for this work: `mca-play-billing-583789026013`.
 The Google Play Developer API must be enabled. The service account needs the Google
 Play financial-data and order-management permissions, scoped to MCA only. Such
 access needs the account owner's approval. No Cloud project roles are required by
-the billing verifier. Do not enable purchasing until a genuine license-test purchase
+the billing verifier. Enable checkout on the existing test track only after the
+server authenticates and verifies the required Google API permissions and products.
+Do not publish an Android production release until a genuine license-test purchase
 verifies, grants access and is acknowledged on the server. The installed AAB 0.1.3
 already contains Google Billing 8.3.0 and the Android Browser Helper bridge.
 
@@ -96,3 +98,69 @@ Primary references:
 - https://developers.google.com/android-publisher/getting_started
 - https://developers.google.com/android-publisher/api-ref/rest/v3/purchases.productsv2
 - https://developers.google.com/android-publisher/api-ref/rest/v3/purchases.products/acknowledge
+
+## Server credential provisioning and Google review access
+
+`setup.py` is a root-only operations helper for the existing MCA host. It generates
+an RSA key on Hetzner and stores the private key and service-account configuration
+only under `/srv/marka-course-academy/private`, mode 0600. It never prints private
+keys or Google/Supabase API tokens. The account is
+`mca-play-verifier@mca-play-billing-583789026013.iam.gserviceaccount.com`.
+
+```bash
+python3 setup.py prepare
+```
+
+Upload the public X.509 certificate to the service account's Keys page in Google
+Cloud. The helper temporarily serves only that public certificate at the exact
+`/mca-play-public-certificate.pem` URL; no private directory is published. Run
+`python3 setup.py cleanup` immediately after upload. The existing nginx routing
+is restored without changing educational material. The uploaded certificate
+expires after 365 days and must be replaced before expiration.
+
+```bash
+python3 setup.py probe
+python3 setup.py activate
+python3 setup.py review
+python3 setup.py test
+```
+
+`probe` requires both active lifetime products, EUR 120.00 in Belgium, successful
+access to the voided-purchase API, and rejection of a deliberately invalid purchase
+token by the purchase-verification API. A 401/403 response never enables checkout.
+`activate` preserves the existing Stripe and Supabase configuration fingerprint and
+restores the previous private configuration if container health or HTTP checks fail.
+
+`review` creates `play-review@markacentrumacademy.eu` with two lifetime course
+enrollments and no administrator role. It is independent of billing readiness;
+it does not join the beta promotion or change lesson, quiz or exam rules. `test`
+creates `play-test@markacentrumacademy.eu` with no course access. Both credentials
+are generated privately on the server; `show-review` and `show-test` deliberately
+display the corresponding student login for its approved recipient. Do not save
+those outputs to logs, GitHub or public artifacts.
+
+### Bounded permission-propagation retry
+
+Google documents that permission changes may take up to 48 hours to propagate:
+https://developers.google.com/android-publisher/api-ref/rest/v3/users
+
+```bash
+python3 setup.py install-activation-watch
+python3 setup.py retry-activation
+python3 setup.py watch-status
+```
+
+Installation copies the reviewed operations code to a durable root-only directory.
+The systemd timer checks every five minutes for at most 48 hours. Until all probes
+pass, checkout remains disabled. After activation, it verifies ordinary student
+login, both checkout configurations and rejection of an invalid purchase; failure
+closes checkout again. Success or deadline expiry stops the timer. This does not
+publish an Android release or replace the real device purchase/restore test.
+Status is stored privately in `google-play-activation-status.json` without secrets.
+
+```bash
+python3 -m unittest discover -s deployments/google-play -p 'test_activation.py'
+```
+
+These tests cover denied access, deadline expiry, rollback after student-validation
+failure, and successful verification followed by timer shutdown.
