@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import time
 import urllib.request
 CONFIG=Path("/etc/nginx/sites-enabled/zz-marka-course-academy.conf").resolve(strict=True)
 PRIVATE=Path("/srv/marka-course-academy/private")
@@ -64,7 +65,14 @@ def main():
                 CONFIG.write_text(original.replace("    location / {",BLOCK+"    location / {",1))
             subprocess.run(["nginx","-t"],check=True)
             subprocess.run(["systemctl","reload","nginx"],check=True)
-            check()
+            for attempt in range(8):
+                try:
+                    check()
+                    break
+                except (OSError,RuntimeError):
+                    if attempt==7:
+                        raise
+                    time.sleep(0.5)
         except BaseException:
             CONFIG.write_text(original)
             if old_file is None:
