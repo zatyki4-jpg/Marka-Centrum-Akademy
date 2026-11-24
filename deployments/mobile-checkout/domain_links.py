@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import urllib.request
-CONFIG=Path("/etc/nginx/sites-enabled/zz-marka-course-academy.conf")
+CONFIG=Path("/etc/nginx/sites-enabled/zz-marka-course-academy.conf").resolve(strict=True)
 PRIVATE=Path("/srv/marka-course-academy/private")
 ROOT=Path("/var/www/mca-digital-asset-links")
 FILE=ROOT/"assetlinks.json"
@@ -35,7 +35,7 @@ def check():
             raise RuntimeError("Unexpected public association")
         print("DOMAIN_VERIFIED",host,"HTTP_200 JSON NO_REDIRECT PLAY_SIGNING_MATCH")
 def main():
-    if os.geteuid()!=0 or not PRIVATE.is_dir() or CONFIG.is_symlink():
+    if os.geteuid()!=0 or not PRIVATE.is_dir() or CONFIG.parent not in (Path("/etc/nginx/sites-available"),Path("/etc/nginx/sites-enabled")) or CONFIG.stat().st_uid!=0 or CONFIG.stat().st_mode & 0o022:
         raise RuntimeError("Existing root-owned MCA host configuration required")
     original=CONFIG.read_text()
     if "server_name markacentrumacademy.eu www.markacentrumacademy.eu;" not in original:
