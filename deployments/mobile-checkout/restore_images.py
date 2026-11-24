@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 import urllib.request
 
-ORIGIN = "https://id-preview--0be60f9c-cb81-4b7c-8ba2-969e84bb9145.lovable.app"
+ORIGIN = "https://etapy-marka-kursy.lovable.app"
 ROOT = Path("/srv/marka-course-academy/asset-mirror")
 ASSETS = [
 "35d2754e-1d89-48d0-97cc-64387983db19/e1-konstrukcja-drewniana.jpg",
