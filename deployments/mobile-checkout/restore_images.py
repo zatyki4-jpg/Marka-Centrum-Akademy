@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import tempfile
 import urllib.request
+import urllib.error
 
 ORIGIN = "https://etapy-marka-kursy.lovable.app"
 ROOT = Path("/srv/marka-course-academy/asset-mirror")
@@ -20,7 +21,8 @@ def main():
         raise RuntimeError("Existing Academy asset root required")
     for item in ASSETS:
         path = "/__l5e/assets-v1/" + item
-        with urllib.request.urlopen(ORIGIN + path, timeout=30) as response:
+        request = urllib.request.Request(ORIGIN + path, headers={"User-Agent": "MarkaCentrumAcademy-AssetRecovery/1.0", "Accept": "image/jpeg"})
+        with urllib.request.urlopen(request, timeout=30) as response:
             content = response.read(12000001)
             if response.geturl() != ORIGIN + path or response.headers.get_content_type() != "image/jpeg":
                 raise RuntimeError("Original JPEG response required")
@@ -50,4 +52,9 @@ def main():
         print("ORIGINAL_VERIFIED", dest.name, len(content), hashlib.sha256(content).hexdigest())
     print("FIVE_ORIGINAL_IMAGES_RESTORED")
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except urllib.error.HTTPError as error:
+        print("ORIGINAL_SOURCE_HTTP", error.code, error.headers.get("Content-Type"))
+        print(error.read(2048).decode("utf-8","replace")[:400])
+        raise SystemExit("Original source did not provide an image; no replacement image used")
