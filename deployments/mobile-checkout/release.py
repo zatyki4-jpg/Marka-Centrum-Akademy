@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import sys
@@ -45,7 +46,17 @@ def deploy():
     target.chmod(0o700)
     shutil.copytree(root, target, dirs_exist_ok=True, symlinks=True,
                     ignore=shutil.ignore_patterns("node_modules", ".git", ".output", ".tanstack", ".vinxi", "dist"))
-    replace_once(target / "src/routes/kurs.$slug.tsx", "<aside>", '<aside className="order-first lg:order-last">')
+    course_path = target / "src/routes/kurs.$slug.tsx"
+    course_source = course_path.read_text()
+    aside_tags = re.findall(r"<aside\b[^>]*>", course_source)
+    ops.require(len(aside_tags) == 1, "Unexpected course checkout panel count")
+    aside = aside_tags[0]
+    if 'className="' in aside:
+        next_aside = aside.replace('className="', 'className="order-first lg:order-last ', 1)
+    else:
+        ops.require("className" not in aside, "Unexpected checkout panel classes")
+        next_aside = aside.replace("<aside", '<aside className="order-first lg:order-last"', 1)
+    replace_once(course_path, aside, next_aside)
     lesson = target / "src/routes/lekcja.$lessonId.tsx"
     original = lesson.read_text()
     heading = '<h1 className="text-2xl font-bold">{t("lesson.notFound")}</h1>'
