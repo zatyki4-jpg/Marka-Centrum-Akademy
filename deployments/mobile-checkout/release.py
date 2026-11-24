@@ -90,5 +90,7 @@ if __name__ == "__main__":
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             deploy()
     except Exception as error:
+        if isinstance(error, ValueError):
+            print(str(error), file=sys.stderr)
         print("MOBILE_CHECKOUT_STOPPED", type(error).__name__, file=sys.stderr)
         sys.exit(1)
