@@ -33,15 +33,6 @@ def cleanup():
 def main():
  os.umask(0o077)
  if len(sys.argv)>1 and sys.argv[1]=='cleanup':cleanup();return
- mca=env('mca-course-test')
- key=mca.get('STRIPE_SECRET_KEY') or p.env_read().get('STRIPE_SECRET_KEY')
- if not key:
-  f=p.pay.PRIVATE/'stripe-checkout.env'
-  if f.exists():
-   p.safe_file(f)
-   values=dict(line.split('=',1) for line in f.read_text().splitlines() if line and not line.startswith('#'))
-   key=values.get('STRIPE_SECRET_KEY')
- if not key or not key.startswith(('sk_live_','rk_live_')):raise ValueError('MCA_STRIPE_RUNTIME_KEY_MISSING')
  auth=env('mca-sb-auth')
  smtp={'SMTP_HOST':auth.get('GOTRUE_SMTP_HOST',''),'SMTP_PORT':auth.get('GOTRUE_SMTP_PORT','587'),'SMTP_USER':auth.get('GOTRUE_SMTP_USER',''),'SMTP_PASS':auth.get('GOTRUE_SMTP_PASS',''),'MAIL_FROM':auth.get('GOTRUE_SMTP_ADMIN_EMAIL','')}
  if not all(smtp.values()):raise ValueError('MCA_SMTP_CONFIGURATION_INCOMPLETE')
@@ -52,40 +43,7 @@ def main():
   mail.login(smtp['SMTP_USER'],smtp['SMTP_PASS'])
  print('SMTP_AUTHENTICATION_VERIFIED',flush=True)
  smtp['SMTP_SECURE']='true' if port==465 else 'false'
- state=json.loads(STATE.read_text()) if STATE.exists() else {}
- def stripe(path,data=None,idem=None):
-  headers={'Authorization':'Bearer '+key,'Stripe-Version':'2026-11-18.endive'}
-  if idem:headers['Idempotency-Key']=idem
-  encoded=urllib.parse.urlencode(data,doseq=True).encode() if data is not None else None
-  req=urllib.request.Request('https://api.stripe.com/v1/'+path,data=encoded,headers=headers)
-  try:
-   with urllib.request.urlopen(req,timeout=30) as r:return json.loads(r.read())
-  except urllib.error.HTTPError as error:
-   body=json.loads(error.read())
-   raise ValueError('Stripe '+str(error.code)+' '+str(body.get('error',{}).get('code','request_failed')))
- prices=state.setdefault('prices',{})
- for plan,amount,name in [('byok',2500,'Własne API'),('start-ai',4900,'Start AI'),('pro-ai',9900,'Pro AI')]:
-  lookup='roof_pro_'+plan.replace('-','_')+'_monthly_v1'
-  existing=stripe('prices?'+urllib.parse.urlencode({'lookup_keys[]':lookup,'limit':1}))
-  if existing.get('data'):
-   price=existing['data'][0]
-  else:
-   product=stripe('products',{'name':'Roof Pro — '+name,'metadata[product]':'roof-pro','metadata[plan]':plan},'roofpro-product-v1-'+plan)
-   price=stripe('prices',{'product':product['id'],'unit_amount':amount,'currency':'eur','recurring[interval]':'month','tax_behavior':'exclusive','lookup_key':lookup,'metadata[product]':'roof-pro'},'roofpro-price-v1-'+plan)
-  if price.get('unit_amount')!=amount or price.get('currency')!='eur' or price.get('tax_behavior')!='exclusive' or price.get('recurring',{}).get('interval')!='month':raise ValueError('STRIPE_PRICE_MISMATCH')
-  prices[plan]=price['id'];save(state)
- events=['checkout.session.completed','customer.subscription.updated','customer.subscription.deleted','invoice.paid','invoice.payment_failed','charge.refunded','charge.dispute.created','charge.dispute.closed','refund.updated']
- if not state.get('webhook'):
-  state['webhook']=stripe('webhook_endpoints',{'url':ORIGIN+'/api/billing/stripe/webhook','enabled_events[]':events,'api_version':'2026-11-18.endive','description':'Roof Pro subscriptions','metadata[product]':'roof-pro'},'roofpro-webhook-v1')
-  save(state)
- if not state.get('portal'):
-  state['portal']=stripe('billing_portal/configurations',{'business_profile[headline]':'Roof Pro — abonament','features[subscription_cancel][enabled]':'true','features[subscription_cancel][mode]':'at_period_end','features[payment_method_update][enabled]':'true','features[invoice_history][enabled]':'true','metadata[product]':'roof-pro'},'roofpro-portal-v1')
-  save(state)
- probe=stripe('checkout/sessions',{'mode':'subscription','automatic_tax[enabled]':'true','billing_address_collection':'required','tax_id_collection[enabled]':'true','line_items[0][price]':prices['byok'],'line_items[0][quantity]':1,'success_url':ORIGIN+'/?billing=setup','cancel_url':ORIGIN+'/?billing=cancelled','metadata[roofpro_setup]':'true'})
- if not probe.get('url','').startswith('https://checkout.stripe.com/'):raise ValueError('STRIPE_CHECKOUT_NOT_READY')
- stripe('checkout/sessions/'+probe['id']+'/expire',{})
- print('STRIPE_PRICES_WEBHOOK_PORTAL_CHECKOUT_VERIFIED',flush=True)
- variables={**smtp,'APP_ORIGIN':ORIGIN,'EMAIL_VERIFICATION_REQUIRED':'true','COMMERCIAL_SIGNUP':'true','STRIPE_SECRET_KEY':key,'STRIPE_WEBHOOK_SECRET':state['webhook']['secret'],'STRIPE_PRICES_JSON':json.dumps(prices,separators=(',',':')),'STRIPE_PORTAL_CONFIGURATION':state['portal']['id'],'STRIPE_BILLING_ENABLED':'true','STRIPE_AUTOMATIC_TAX':'true','BILLING_PRICES_REVIEWED':'true','GOOGLE_PLAY_BILLING_ENABLED':'false','GOOGLE_PLAY_PACKAGE':'be.markaconstruct.dachpro'}
+ variables={**smtp,'APP_ORIGIN':ORIGIN,'EMAIL_VERIFICATION_REQUIRED':'true','COMMERCIAL_SIGNUP':'true'}
  payload=json.dumps({'service_id':'49bc6414-6a6f-417e-83cc-b00e5d9c53c6','variables':variables}).encode()
  symmetric=os.urandom(32);nonce=os.urandom(12)
  public=serialization.load_pem_public_key(PUBLIC_KEY.encode())
