@@ -2,6 +2,7 @@
 """Provision the approved shared services for Roof Pro; never print secrets."""
 import base64, importlib.util, json, os, smtplib, ssl, subprocess, sys, urllib.parse, urllib.request
 from pathlib import Path
+sys.path = [entry for entry in sys.path if entry and Path(entry).resolve() != Path(__file__).resolve().parent]
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
