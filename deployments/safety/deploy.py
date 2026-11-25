@@ -39,11 +39,14 @@ def deploy():
     target=Path(tempfile.mkdtemp(prefix='mca-safety-'+stamp+'-',dir=ops.RELEASES));target.chmod(0o700)
     shutil.copytree(root,target,dirs_exist_ok=True,symlinks=True,ignore=shutil.ignore_patterns('node_modules','.git','.output','.tanstack','.vinxi','dist'))
     card=target/'src/components/CourseCard.tsx'
-    replace(card,'export function CourseCard({ course }: { course: Course }) {','function ExistingCourseCard({ course }: { course: Course }) {')
-    card.write_text('import { SafetyCourseCard } from "@/components/SafetyCourse";\n'+card.read_text()+'\nexport function CourseCard({ course }: { course: Course }) {\n  return course.slug === "bezpieczenstwo-na-dachu" ? <SafetyCourseCard course={course} /> : <ExistingCourseCard course={course} />;\n}\n')
     route=target/'src/routes/kurs.$slug.tsx'
-    replace(route,'function CoursePublicPage() {','function ExistingCoursePublicPage() {')
-    route.write_text('import { SafetyCoursePublicPage } from "@/components/SafetyCourse";\n'+route.read_text()+'\nfunction CoursePublicPage() {\n  const { slug } = Route.useParams();\n  return slug === "bezpieczenstwo-na-dachu" ? <SafetyCoursePublicPage /> : <ExistingCoursePublicPage />;\n}\n')
+    if not active.exists():
+        replace(card,'export function CourseCard({ course }: { course: Course }) {','function ExistingCourseCard({ course }: { course: Course }) {')
+        card.write_text('import { SafetyCourseCard } from "@/components/SafetyCourse";\n'+card.read_text()+'\nexport function CourseCard({ course }: { course: Course }) {\n  return course.slug === "bezpieczenstwo-na-dachu" ? <SafetyCourseCard course={course} /> : <ExistingCourseCard course={course} />;\n}\n')
+        replace(route,'function CoursePublicPage() {','function ExistingCoursePublicPage() {')
+        route.write_text('import { SafetyCoursePublicPage } from "@/components/SafetyCourse";\n'+route.read_text()+'\nfunction CoursePublicPage() {\n  const { slug } = Route.useParams();\n  return slug === "bezpieczenstwo-na-dachu" ? <SafetyCoursePublicPage /> : <ExistingCoursePublicPage />;\n}\n')
+    else:
+        ops.require('SafetyCourseCard course={course}' in card.read_text() and '<SafetyCoursePublicPage />' in route.read_text(),'Existing safety routing changed')
     shutil.copyfile(component,target/'src/components/SafetyCourse.tsx')
     target_dir=ops.local_copy(root,target,directory)
     next_files=[ops.local_copy(root,target,p) for p in files]

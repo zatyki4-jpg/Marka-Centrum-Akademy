@@ -1,6 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { useI18n } from "@/lib/i18n";
 import type { Course } from "@/lib/queries";
+import { SiteHeader } from "@/components/SiteHeader";
+import { SiteFooter } from "@/components/SiteFooter";
 
 const copy = {
   pl: { title: "Szkolenie MCA: Bezpieczeństwo na dachu", badge: "SZKOLENIE MCA", lead: "Bezpieczna organizacja prac dekarskich w Belgii", description: "Samodzielna nauka online: rozpoznawanie zagrożeń, dobór zabezpieczeń i organizacja pracy na dachach płaskich i skośnych.", form: "Szkolenie teoretyczne online — bez zajęć praktycznych.", price: "Cena jednorazowa", tax: "59 € brutto • dostęp bezterminowy po zakupie", status: "Zapisy w przygotowaniu", statusText: "Szkolenie jest już w katalogu. Możliwość zakupu zostanie udostępniona po zakończeniu przygotowania materiałów i płatności.", program: "Program szkolenia", duration: "2,5–3 h samodzielnej nauki", modules: "7 modułów", materials: "Materiały: PL / NL / FR / EN", details: "Zobacz program", back: "Wróć do katalogu", included: "Materiały ilustrowane, 20 pytań do samokontroli i 3 formularze do pracy na budowie.", learning: "Potwierdzenie ukończenia dotyczy wiedzy objętej szkoleniem MCA. Zajęcia praktyczne i ocena umiejętności nie są częścią tego szkolenia.", topics: ["Prawo, odpowiedzialność i ochrona", "Dach płaski: krawędzie i dostęp", "Dach skośny, rusztowania i kruche pokrycia", "Środki ochrony i wolna przestrzeń", "Ogień, propan i nadzór po pracy", "Wiatr, upał, chemia i ergonomia", "LMRA, ratownictwo i pierwsza pomoc"] },
@@ -34,7 +36,7 @@ export function SafetyCourseCard({ course }: { course: Course }) {
 
 export function SafetyCoursePublicPage() {
   const c = useCopy();
-  return <main className="mx-auto max-w-6xl space-y-8 px-4 py-10">
+  return <><SiteHeader /><main className="mx-auto max-w-6xl space-y-8 px-4 py-10">
     <Link to="/katalog" className="text-sm text-muted-foreground">← {c.back}</Link>
     <section className="grid items-center gap-8 lg:grid-cols-2">
       <div className="space-y-5"><p className="text-sm font-semibold tracking-widest text-gold">{c.badge}</p><h1 className="text-3xl font-bold text-gold md:text-4xl">{c.title}</h1><p className="text-xl">{c.lead}</p><p className="text-muted-foreground">{c.description}</p><p className="font-semibold">{c.form}</p><p>{c.modules} · {c.duration}</p><p className="text-sm text-muted-foreground">{c.materials}</p></div>
@@ -44,5 +46,5 @@ export function SafetyCoursePublicPage() {
       <div className="space-y-5"><h2 className="text-2xl font-semibold">{c.program}</h2><ol className="space-y-3">{c.topics.map((title,index)=><li key={title} className="flex gap-4 rounded-lg border p-4"><span className="font-semibold text-gold">{String(index+1).padStart(2,"0")}</span><span>{title}</span></li>)}</ol><p className="text-muted-foreground">{c.included}</p><p className="text-sm text-muted-foreground">{c.learning}</p></div>
       <aside className="h-fit space-y-4 rounded-xl border border-gold/30 p-6"><p className="text-sm text-muted-foreground">{c.price}</p><p className="text-4xl font-bold text-gold">59 €</p><p className="text-sm">{c.tax}</p><p role="status" className="rounded-md bg-accent/10 p-3 font-semibold">{c.status}</p><p className="text-sm text-muted-foreground">{c.statusText}</p></aside>
     </section>
-  </main>;
+  </main><SiteFooter /></>;
 }
