@@ -33,7 +33,7 @@ def cleanup():
 def main():
  os.umask(0o077)
  if len(sys.argv)>1 and sys.argv[1]=='cleanup':cleanup();return
- relay_spec=importlib.util.spec_from_file_location('roofpro_mail',HERE/'roofpro_mail.py')
+ relay_spec=importlib.util.spec_from_file_location('roofpro_billing',HERE/'roofpro_billing.py')
  relay=importlib.util.module_from_spec(relay_spec);relay_spec.loader.exec_module(relay)
  variables=relay.install()
  payload=json.dumps({'service_id':'49bc6414-6a6f-417e-83cc-b00e5d9c53c6','variables':variables}).encode()
