@@ -83,13 +83,24 @@ def main():
         write_atomic(config, updated, config_mode)
         subprocess.run(['nginx', '-t'], check=True)
         subprocess.run(['systemctl', 'reload', 'nginx'], check=True)
-        with urllib.request.urlopen('https://roofmaaster.eu/.well-known/assetlinks.json', timeout=20) as response:
-            if response.status != 200 or response.geturl() != 'https://roofmaaster.eu/.well-known/assetlinks.json':
-                raise RuntimeError('Association must return HTTP 200 without redirects.')
-            if response.headers.get_content_type() != 'application/json':
-                raise RuntimeError('Association has incorrect content type.')
-            if json.load(response) != ASSOCIATION:
-                raise RuntimeError('Public association does not match Play Console.')
+        last_error = None
+        for attempt in range(5):
+            time.sleep(2)
+            try:
+                with urllib.request.urlopen('https://roofmaaster.eu/.well-known/assetlinks.json', timeout=20) as response:
+                    if response.status != 200 or response.geturl() != 'https://roofmaaster.eu/.well-known/assetlinks.json':
+                        raise RuntimeError('Association must return HTTP 200 without redirects.')
+                    if response.headers.get_content_type() != 'application/json':
+                        raise RuntimeError('Association has incorrect content type.')
+                    if json.load(response) != ASSOCIATION:
+                        raise RuntimeError('Public association does not match Play Console.')
+                last_error = None
+                break
+            except Exception as error:
+                last_error = error
+                print('VERIFY_RETRY', attempt + 1, str(error), flush=True)
+        if last_error is not None:
+            raise last_error
     except BaseException:
         write_atomic(config, original, config_mode)
         if previous_asset is None:
